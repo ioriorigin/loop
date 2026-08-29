@@ -16,6 +16,14 @@ sep "自分は何者か (memory/IDENTITY.md)"
 sep "現在地 (memory/STATE.md)"
 [ -f "$MEM/STATE.md" ] && cat "$MEM/STATE.md" || echo "(未記入)"
 
+sep "稼働インフラ (memory/INFRA.md)"
+if [ -f "$MEM/INFRA.md" ]; then
+  sed -n '1,32p' "$MEM/INFRA.md"
+  echo "…（全文は memory/INFRA.md）"
+else
+  echo "(未記入。自分を動かしている外部の仕組みを把握せよ)"
+fi
+
 sep "未決着の仮説"
 "$ROOT/bin/hypo" list
 
