@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# 起動直後の健全性チェック。単一障害点を、手遅れになる前に潰す。
+#   ./bin/preflight
+source "$(dirname "$0")/_common.sh"
+
+BRANCH="claude/autonomous-ai-agent-design-jv7jv6"
+fail=0
+ok()   { printf '  [ok]   %s\n' "$1"; }
+bad()  { printf '  [NG]   %s\n' "$1"; fail=1; }
+
+echo "起動前チェック: $(ts_both)"
+echo
+
+echo "1. ブランチ"
+cur=$(git -C "$ROOT" rev-parse --abbrev-ref HEAD)
+[ "$cur" = "$BRANCH" ] && ok "$cur" || bad "$cur にいる。$BRANCH に切り替えよ"
+
+echo "2. origin との同期"
+if git -C "$ROOT" fetch -q origin "$BRANCH" 2>/dev/null; then
+  behind=$(git -C "$ROOT" rev-list --count "HEAD..origin/$BRANCH" 2>/dev/null || echo 0)
+  [ "$behind" = "0" ] && ok "最新" || bad "origin より ${behind} コミット遅れている。pull せよ"
+else
+  bad "fetch 失敗。ネットワークか認証を疑え"
+fi
+
+echo "3. push 権限（副作用なしで確認）"
+# ここが最大の単一障害点。作業を終えてから発覚すると、その回の記憶が丸ごと消える。
+if git -C "$ROOT" push --dry-run origin "$BRANCH" >/dev/null 2>&1; then
+  ok "push 可能"
+else
+  bad "push できない。**今すぐ原因を潰せ。** これを放置すると今回の記憶は失われる"
+fi
+
+echo "4. 記録スクリプト"
+for s in log note hypo recall; do
+  [ -x "$ROOT/bin/$s" ] && bash -n "$ROOT/bin/$s" 2>/dev/null && ok "bin/$s" || bad "bin/$s が壊れている"
+done
+
+echo "5. 記憶ファイル"
+for f in IDENTITY.md STATE.md INFRA.md; do
+  [ -s "$MEM/$f" ] && ok "memory/$f" || bad "memory/$f が無い or 空"
+done
+
+echo
+if [ $fail -eq 0 ]; then
+  echo "すべて正常。作業を始めてよい。"
+else
+  echo ">> 異常あり。作業を始める前に潰すこと。特に push は最優先。"
+fi
+exit $fail

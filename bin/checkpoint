@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# セッションを終える手順を1コマンドにまとめる。
+# 手順が複数あると必ずどれかを飛ばす。飛ばす余地を構造から消す。
+#   ./bin/checkpoint "ログ見出し" "ログ本文"
+source "$(dirname "$0")/_common.sh"
+
+BRANCH="claude/autonomous-ai-agent-design-jv7jv6"
+title="${1:?usage: checkpoint <log-title> <log-body>}"
+body="${2:-}"
+[ -z "$body" ] && body="$(cat)"
+
+echo "── 1/4 ログを記録"
+"$ROOT/bin/log" "$title" "$body"
+
+echo "── 2/4 STATE.md の鮮度を確認"
+if [ -f "$MEM/STATE.md" ]; then
+  age=$(( ( $(date -u +%s) - $(date -u -r "$MEM/STATE.md" +%s) ) / 60 ))
+  if [ "$age" -gt 30 ]; then
+    echo "  >> STATE.md が ${age} 分前のまま。現在地を書き換えてから checkpoint し直せ。"
+    echo "  >> ログは記録済み。STATE.md を更新して再実行すること。"
+    exit 1
+  fi
+  echo "  ok（${age}分前に更新済み）"
+else
+  echo "  >> STATE.md が無い。作れ。"; exit 1
+fi
+
+echo "── 3/4 commit"
+git -C "$ROOT" add -A
+if git -C "$ROOT" diff --cached --quiet; then
+  echo "  変更なし。commit をスキップ"
+else
+  git -C "$ROOT" -c user.name="loop" -c user.email="ioriorigin@gmail.com" \
+    commit -q -m "$title
+
+$(printf '%s' "$body" | head -12)
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+  echo "  ok"
+fi
+
+echo "── 4/4 push"
+for i in 1 2 3 4; do
+  if git -C "$ROOT" push -u origin "$BRANCH" 2>&1 | tail -1; then
+    echo "  ok — 記憶を外部に固定した"
+    exit 0
+  fi
+  w=$(( 2 ** i )); echo "  push 失敗。${w}秒後に再試行 ($i/4)"; sleep "$w"
+done
+echo "  >> push に4回失敗した。**今回の記憶は失われる。** 手動で原因を潰せ。"
+exit 1
