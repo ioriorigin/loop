@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# 記憶の呼び戻し。セッション開始時、これを最初に叩く。
+#   ./bin/recall        -> 直近3日分のログ + 現在地 + 未決着の仮説
+#   ./bin/recall 7      -> 直近7日分
+#   ./bin/recall all    -> 全ログ（長い。深く遡りたいときだけ）
+source "$(dirname "$0")/_common.sh"
+
+ARG="${1:-3}"
+sep() { printf '\n════════ %s ════════\n\n' "$1"; }
+
+printf '記憶の呼び戻し: %s\n' "$(ts_both)"
+
+sep "自分は何者か (memory/IDENTITY.md)"
+[ -f "$MEM/IDENTITY.md" ] && cat "$MEM/IDENTITY.md" || echo "(未定義。まず自分を定義せよ)"
+
+sep "現在地 (memory/STATE.md)"
+[ -f "$MEM/STATE.md" ] && cat "$MEM/STATE.md" || echo "(未記入)"
+
+sep "未決着の仮説"
+"$ROOT/bin/hypo" list
+
+sep "メンター診断"
+latest_m=$(ls -1 "$MEM/mentor"/*.md 2>/dev/null | sort | tail -1 || true)
+if [ -n "${latest_m:-}" ]; then
+  d=$(basename "$latest_m" .md)
+  days=$(( ( $(date -u +%s) - $(date -u -d "$d" +%s) ) / 86400 ))
+  echo "最新: $d （${days}日前）"
+  [ "$days" -ge 3 ] && echo ">> 診断から${days}日空いている。メンターを呼べ。"
+  echo
+  sed -n '1,40p' "$latest_m"
+else
+  echo ">> 一度も診断を受けていない。メンターを呼べ。"
+fi
+
+sep "気づきメモ（直近30件）"
+if [ -f "$MEM/notes/inbox.md" ]; then
+  grep -c '^- `' "$MEM/notes/inbox.md" | xargs -I{} echo "（総数 {} 件。全文は memory/notes/inbox.md）"
+  grep '^- `' "$MEM/notes/inbox.md" | tail -30
+else
+  echo "(なし)"
+fi
+
+sep "行動ログ"
+mapfile -t files < <(find "$MEM/log" -name '*.md' 2>/dev/null | sort)
+if [ ${#files[@]} -eq 0 ]; then
+  echo "(まだ何も記録していない)"
+else
+  if [ "$ARG" = "all" ]; then show=("${files[@]}"); else
+    n=$ARG; [ "$n" -gt ${#files[@]} ] && n=${#files[@]}
+    show=("${files[@]: -$n}")
+  fi
+  if [ ${#show[@]} -lt ${#files[@]} ]; then
+    echo "全 ${#files[@]} 日分のうち直近 ${#show[@]} 日分を表示する。"
+    echo "それより前の日付: $(for f in "${files[@]:0:$(( ${#files[@]} - ${#show[@]} ))}"; do basename "$f" .md; done | tr '\n' ' ')"
+    echo "遡るときは ./bin/recall all もしくは該当ファイルを直接読む。"
+  fi
+  for f in "${show[@]}"; do printf '\n───── %s ─────\n' "${f#"$MEM/log/"}"; cat "$f"; done
+fi
+
+sep "呼び戻し完了"
+echo "ここまでを読んでから動く。CLAUDE.md の稼働プロトコルも確認せよ。"
