@@ -6,6 +6,11 @@
 source "$(dirname "$0")/_common.sh"
 
 ARG="${1:-3}"
+# 非数値を渡すと算術比較で落ちて、行動ログ節が丸ごと消える。黙って死ぬのが最悪なので既定に落とす。
+case "$ARG" in
+  all) ;;
+  ''|*[!0-9]*) echo "警告: 引数 '$ARG' は数値でも all でもない。既定の3日分で続行する。" >&2; ARG=3 ;;
+esac
 sep() { printf '\n════════ %s ════════\n\n' "$1"; }
 
 printf '記憶の呼び戻し: %s\n' "$(ts_both)"
@@ -18,10 +23,19 @@ sep "現在地 (memory/STATE.md)"
 
 sep "稼働インフラ (memory/INFRA.md)"
 if [ -f "$MEM/INFRA.md" ]; then
-  sed -n '1,32p' "$MEM/INFRA.md"
-  echo "…（全文は memory/INFRA.md）"
+  # 固定行数で切ると、内容が1行増えるたびに切断面がずれて重要な節が消える。
+  # 実際「### 既知の制約（重要）」が見出しごと落ちていた。全文を出す。
+  cat "$MEM/INFRA.md"
 else
   echo "(未記入。自分を動かしている外部の仕組みを把握せよ)"
+fi
+
+sep "自分に課した制約 (.claude/rules/autonomous-loop.md)"
+if [ -s "$ROOT/.claude/rules/autonomous-loop.md" ]; then
+  sed -n '/^## 絶対にやらないこと/,/^## コストの自覚/p' "$ROOT/.claude/rules/autonomous-loop.md"
+  echo "（全文は .claude/rules/autonomous-loop.md）"
+else
+  echo ">> 制約ファイルが無い。停止条件のないループは暴走する。作れ。"
 fi
 
 sep "未決着の仮説"
@@ -42,8 +56,11 @@ fi
 
 sep "気づきメモ（直近30件）"
 if [ -f "$MEM/notes/inbox.md" ]; then
-  grep -c '^- `' "$MEM/notes/inbox.md" | xargs -I{} echo "（総数 {} 件。全文は memory/notes/inbox.md）"
-  grep '^- `' "$MEM/notes/inbox.md" | tail -30
+  # grep はヒット0件で exit 1 を返す。set -e 下ではここで recall 全体が黙って死に、
+  # 以降の「行動ログ」節が一切出力されない。|| true で必ず握り潰す。
+  cnt=$(grep -c '^- `' "$MEM/notes/inbox.md" || true)
+  echo "（総数 ${cnt:-0} 件。全文は memory/notes/inbox.md）"
+  grep '^- `' "$MEM/notes/inbox.md" 2>/dev/null | tail -30 || echo "(まだ無い)"
 else
   echo "(なし)"
 fi

@@ -36,7 +36,19 @@ for s in log note hypo recall; do
   [ -x "$ROOT/bin/$s" ] && bash -n "$ROOT/bin/$s" 2>/dev/null && ok "bin/$s" || bad "bin/$s が壊れている"
 done
 
-echo "5. 記憶ファイル"
+echo "5. 記録系の回帰テスト"
+if [ -x "$ROOT/bin/selftest" ]; then
+  if "$ROOT/bin/selftest" >/dev/null 2>&1; then ok "selftest 全通過"
+  else bad "selftest が失敗している。./bin/selftest を直接実行して原因を見よ"; fi
+else
+  bad "bin/selftest が無い"
+fi
+
+echo "6. 制約の存在"
+if [ -s "$ROOT/.claude/rules/autonomous-loop.md" ]; then ok "自律ループの制約あり"
+else bad ".claude/rules/autonomous-loop.md が無い。停止条件のないループは暴走する"; fi
+
+echo "7. 記憶ファイル"
 for f in IDENTITY.md STATE.md INFRA.md; do
   [ -s "$MEM/$f" ] && ok "memory/$f" || bad "memory/$f が無い or 空"
 done

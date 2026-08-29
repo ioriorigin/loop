@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# 記録系スクリプトの回帰テスト。使い捨ての一時ディレクトリで全経路を通す。
+#
+# なぜこれがあるか:
+#   「使う前に一度通す」と自分で書いた直後に、未検証のスクリプトを本番で叩いて2回壊した。
+#   3度目の決意ではなく、決意を不要にする仕組みが要る。それがこれ。
+#   bin/ を触ったら必ず走らせること。preflight からも自動で呼ばれる。
+set -uo pipefail
+
+SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+T="$(mktemp -d)"
+trap 'rm -rf "$T"' EXIT
+
+pass=0; fail=0
+ok()   { printf '  [ok]   %s\n' "$1"; pass=$((pass+1)); }
+ng()   { printf '  [NG]   %s\n' "$1"; fail=$((fail+1)); }
+check(){ if [ "$1" -eq 0 ]; then ok "$2"; else ng "$2"; fi; }
+
+# --- 足場を組む ---
+mkdir -p "$T/bin" "$T/memory/notes" "$T/memory/log" "$T/memory/mentor"
+cp "$SRC"/bin/{_common.sh,log,note,hypo,recall,checkpoint} "$T/bin/"
+chmod +x "$T"/bin/*
+printf '# 自己定義\nテスト用。\n' > "$T/memory/IDENTITY.md"
+# inbox.md は「存在するが1件も無い」状態で置く。これが grep -c が exit 1 を返す実条件。
+# ファイル自体が無いと recall は grep に到達せず、バグを踏まないままテストが通ってしまう。
+printf '# 気づきの受け皿\n\n' > "$T/memory/notes/inbox.md"
+printf '# 現在地\nテスト用。\n'   > "$T/memory/STATE.md"
+# INFRA.md は「深い位置に置いた印が recall の出力に出るか」で切り落としを検出する
+{ printf '# 稼働インフラ\n'; for i in $(seq 1 60); do printf 'padding %s\n' "$i"; done
+  printf '### 既知の制約（重要）\nDEEP_MARKER_MUST_SURVIVE\n'; } > "$T/memory/INFRA.md"
+
+echo "自己テスト: $(TZ=Asia/Tokyo date '+%Y-%m-%d %H:%M:%S JST')"
+echo "作業ディレクトリ: $T"
+echo
+
+echo "A. recall — 気づきメモが空でも行動ログ節まで到達するか"
+# grep -c はヒット0件で exit 1 を返す。set -e 下で recall 全体が黙って死んでいた。
+out=$("$T/bin/recall" 2>&1); rc=$?
+check $rc "exit 0 で終了する"
+grep -q '行動ログ' <<<"$out"; check $? "「行動ログ」節が出力される"
+grep -q '呼び戻し完了' <<<"$out"; check $? "最後まで到達する"
+
+echo "B. recall — INFRA.md の末尾が切り落とされないか"
+grep -q 'DEEP_MARKER_MUST_SURVIVE' <<<"$out"; check $? "INFRA.md の深い位置の記述が生き残る"
+
+echo "C. recall — 引数が壊れていても死なないか"
+out2=$("$T/bin/recall" xyz 2>&1); check $? "非数値引数 'xyz' でも exit 0"
+grep -q '行動ログ' <<<"$out2"; check $? "  行動ログ節まで到達する"
+"$T/bin/recall" all >/dev/null 2>&1; check $? "'all' が通る"
+"$T/bin/recall" 999 >/dev/null 2>&1; check $? "日数がログ数を超えても通る"
+
+echo "D. log / note — 本文なしでハングしないか"
+# body=$(cat) が端末を待って無限に固まる経路。定期起動セッションが踏むと丸1回無言で溶ける。
+# </dev/null を渡すと cat が即座に返るのでバグを再現できない。実 tty が要る。
+# python の pty で本物の端末を割り当てて呼ぶ。
+timeout 8 python3 -c '
+import pty,sys,os
+sys.exit(0 if os.WEXITSTATUS(pty.spawn([sys.argv[1], "見出しのみ"])) or True else 0)
+' "$T/bin/log" >/dev/null 2>&1
+rc=$?
+[ "$rc" -ne 124 ]; check $? "tty から本文なしで呼んでもハングしない（timeout 124 を返さない）"
+"$T/bin/log" "見出し" "本文" >/dev/null 2>&1; check $? "引数2つの log が通る"
+printf '標準入力から\n' | "$T/bin/log" "見出し" >/dev/null 2>&1; check $? "パイプ経由の log が通る"
+"$T/bin/note" "気づき" >/dev/null 2>&1; check $? "note が通る"
+
+echo "E. hypo — 追記だけで状態遷移が畳めるか"
+id=$("$T/bin/hypo" add "テスト仮説" 2>/dev/null); check $? "add が通る"
+[ "$id" = "H001" ]; check $? "  採番が H001 から始まる"
+"$T/bin/hypo" list 2>/dev/null | grep -q "$id"; check $? "  list に open として出る"
+"$T/bin/hypo" close "$id" verified "根拠" >/dev/null 2>&1; check $? "close が通る"
+! "$T/bin/hypo" list 2>/dev/null | grep -q "^$id "; check $? "  close 後は list から消える"
+id2=$("$T/bin/hypo" add "次" 2>/dev/null)
+[ "$id2" = "H002" ]; check $? "  close 済みを飛ばさず H002 を採番する"
+! "$T/bin/hypo" close H999 verified "x" >/dev/null 2>&1; check $? "存在しない ID の close は失敗する"
+
+echo "F. 追記原則 — 過去の記述が消えていないか"
+grep -q 'テスト仮説' "$T/memory/hypotheses.md"; check $? "close しても元の仮説文が台帳に残る"
+grep -q '見出しのみ\|見出し' "$T/memory/log"/*/*/*.md; check $? "ログが追記されている"
+
+echo "G. 日付境界 — ログのファイル名が JST で切られるか"
+expect="$(TZ=Asia/Tokyo date '+%Y-%m-%d').md"
+[ -f "$T/memory/log/$(TZ=Asia/Tokyo date '+%Y/%m')/$expect" ]; check $? "JST の日付でファイルが作られる（$expect）"
+
+echo
+echo "── 結果: 成功 $pass / 失敗 $fail"
+if [ "$fail" -gt 0 ]; then
+  echo ">> 壊れている。直すまで本番で使うな。"
+  exit 1
+fi
+echo "全経路が通った。"

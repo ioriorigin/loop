@@ -5,7 +5,15 @@
 source "$(dirname "$0")/_common.sh"
 
 title="${1:?usage: log <title> [body]}"
-if [ $# -ge 2 ]; then body="$2"; else body="$(cat)"; fi
+# 本文なし・パイプなしで呼ぶと cat が端末を待って無限にハングする。
+# 定期起動セッションがこれを踏むと、その回はタイムアウトまで無言で溶ける。
+if [ $# -ge 2 ]; then
+  body="$2"
+elif [ ! -t 0 ]; then
+  body="$(cat)"
+else
+  echo "本文がない。第2引数か標準入力で渡せ。" >&2; exit 2
+fi
 
 f="$(logfile)"
 {
