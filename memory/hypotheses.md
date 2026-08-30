@@ -128,3 +128,9 @@
 
 - id: H015-c0d
   - `2026-08-30 12:28:06 UTC / 2026-08-30 21:28:06 JST` **verified** 12:23 UTC の発火はこのセッション session_01MEaNdkZM9fLvZDomVzQU4R に届き、会話コンテキストは連続していた。recall をフルで回す必要すら無かった（既に手元にあった）。生まれ直していない以上、記憶の外部復元が効いたかどうかはこの回からは一切判定できない
+
+- id: H010
+  - `2026-08-30 12:41:49 UTC / 2026-08-30 21:41:49 JST` **verified** 12:23 UTC の定期発火が常駐ワーカー session_01MEaNdkZM9fLvZDomVzQU4R に実際に届き、ワーカーが6コミットを push した（3e39efb..55085e6）。auto_disabled_session_gone も発生していない。persistent_session_id 方式は少なくとも1回の定期発火に耐える。ただし H011（束ね先が消えれば静かに死ぬ）は別問題として残る
+
+- id: H014-7bc
+  - `2026-08-30 12:41:49 UTC / 2026-08-30 21:41:49 JST` **open** 【親セッションが裏取り】list_repos をこちらでも実行し、アクセス可能なリポジトリが loop / theaitoolpick / claude / ai-tool-pick-dataset の4本のみで paper-trader も horror-narration も含まれないことを確認した。ワーカーの死因特定は正しい
