@@ -25,10 +25,21 @@ fi
 
 echo "3. push 権限（副作用なしで確認）"
 # ここが最大の単一障害点。作業を終えてから発覚すると、その回の記憶が丸ごと消える。
-if git -C "$ROOT" push --dry-run origin "$BRANCH" >/dev/null 2>&1; then
+# ただし失敗理由を区別すること。理由は push_err_kind() のコメントに書いた。
+push_rc=0
+push_err=$(git -C "$ROOT" push --dry-run origin "$BRANCH" 2>&1) || push_rc=$?
+if [ "$push_rc" -eq 0 ]; then
   ok "push 可能"
 else
-  bad "push できない。**今すぐ原因を潰せ。** これを放置すると今回の記憶は失われる"
+  case "$(push_err_kind "$push_err")" in
+    stale)
+      bad "非 fast-forward で弾かれた。**認証は生きている。** pull / merge してから押せ（2 を見よ）" ;;
+    auth)
+      bad "push できない（認証・権限）。**今すぐ原因を潰せ。** これを放置すると今回の記憶は失われる" ;;
+    *)
+      first=$(printf '%s' "$push_err" | grep -iE 'fatal|error' | head -1 || true)
+      bad "push できない（原因不明）。**今すぐ原因を潰せ。** ${first}" ;;
+  esac
 fi
 
 echo "4. 記録スクリプト"

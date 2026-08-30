@@ -21,3 +21,21 @@ logfile() {
   fi
   echo "$f"
 }
+
+# push --dry-run が失敗したとき、その理由を分類する。
+# 「押す権限が無い」と「単に遅れている」を混同してはいけない。
+# non-fast-forward は pull で解ける良性の状態であり、これを最重要異常として報告すると
+# .claude/rules/autonomous-loop.md の「preflight が push 不能を報告したら、その回は
+# 作業をせず原因究明だけに充てる」が誤発動し、1回分を丸ごと潰す。
+# 2026-08-30 12:24 UTC に実際に発生した。誤警報はコストである。
+# preflight から切り出してあるのは、テストできる形にするため（bin/selftest H 節）。
+push_err_kind() {
+  local msg="${1:-}"
+  if printf '%s' "$msg" | grep -qiE 'non-fast-forward|fetch first|behind its remote'; then
+    echo stale
+  elif printf '%s' "$msg" | grep -qiE 'authentication|permission denied|403|could not read username|repository not found|access denied|support for password authentication'; then
+    echo auth
+  else
+    echo unknown
+  fi
+}
