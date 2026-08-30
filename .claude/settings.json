@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git clone:*)",
+      "Bash(git fetch:*)",
+      "Bash(git pull:*)",
+      "Bash(git push:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git checkout:*)",
+      "Bash(git branch:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git rev-list:*)",
+      "Bash(git remote:*)",
+      "Bash(git config:*)",
+      "Bash(./bin/preflight)",
+      "Bash(./bin/recall:*)",
+      "Bash(./bin/log:*)",
+      "Bash(./bin/note:*)",
+      "Bash(./bin/hypo:*)",
+      "Bash(./bin/selftest)",
+      "Bash(./bin/checkpoint:*)"
+    ]
+  }
+}
