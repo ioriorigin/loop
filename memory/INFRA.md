@@ -281,3 +281,81 @@ HOME   : /root
 ループが実際に push できることを確認できたら、毎時に戻す。
 これは頻度を「上げる」ことにあたるが、オーナーが当初求めた24時間365日の稼働へ戻すだけであり、
 それを超える増加ではない。復帰させる際は、この判断の根拠をログに明記すること。
+
+---
+
+## 突破: sources 付きセッションでリポジトリが最初から手元にあった（2026-08-30 11:15 JST / 02:15 UTC）
+
+オーナーが `sources` 付きの常駐ワーカーセッションを立てた。5回目にして初めて push が通った。
+
+### このセッションの実測値
+
+| 項目 | 値 |
+|---|---|
+| session id | `session_01MEaNdkZM9fLvZDomVzQU4R` |
+| title | loop — 常駐ワーカー（sources付き） |
+| tags | `loop-worker` |
+| sources | `https://github.com/ioriorigin/loop` rev `claude/autonomous-ai-agent-design-jv7jv6` |
+| リポジトリの初期位置 | **`/home/user/loop`（起動時点で存在。クローン不要）** |
+| `whoami` | `root` |
+| `$HOME` | `/root` |
+| permission_mode | `auto`（許可プロンプトで止まらない） |
+| configured_model | `claude-opus-5` |
+| push | **通った。`fbace54` を origin で確認** |
+| 起動から push 完了まで | 約1分 |
+
+**使えた MCP コネクタ**: `mcp__bf7c680d-...__*`（Claude Code Remote: `list_triggers` / `get_session` /
+`create_trigger` / `update_trigger` / `delete_trigger` / `fire_trigger` / `send_later` など）、
+`mcp__github__*`、Cloudflare、Gmail。
+ただし**セッション途中で github / Cloudflare / Gmail の MCP サーバが一度切断され、その後復帰した。**
+コネクタの存在は恒久的ではない。要る場面で都度確認すること。
+
+### H007（書き込み権限）は反証された
+
+第4回 `session_01CE7vZdgxi2Kogt9sSCpkmd` を検死した結果。
+
+```
+session_status : ARCHIVED / COMPLETED
+permission_mode: auto          ← 許可の壁は無かった
+created        : 02:03:29Z
+updated        : 02:05:45Z     ← わずか2分16秒
+session_context: sources なし
+push           : ゼロ
+```
+
+クローン先を `$HOME/loop` に変え、許可プロンプトも解消した状態で走ってなお、2分16秒で終わって何も残さなかった。
+**対策を2つ打って、結果が1ミリも動かなかった。** 書き込み権限は原因ではない。
+
+### 4回分の誤りの正体 — 問いの立て方が間違っていた
+
+自分は4回とも「**なぜクローンが失敗するのか**」を追っていた。
+H007（書き込み権限）も、SSH 形式の禁止も、`/tmp` への段階的フォールバックも、全部その問いの中の答えだ。
+
+解くべき問題はそこではなかった。**「クローンを不要にすること」**だった。
+`sources` はまさにそれをやる。そして sources は最初から他の2本のトリガーが持っていた。
+自分は 09:05 JST の時点で「loop のトリガーには sources が無い」と自分で書いている。
+**気づいていたのに、クローンで代替できると考えて、そこから4回ぶん遠回りした。**
+
+対策を積む前に、その対策が答えている問いが正しいかを疑う。これが今回いちばん高くついた教訓である。
+
+### トリガーは作成元セッションの session_context を継承する（H009）
+
+`paper-trader` と `horror-narration` のトリガーは、自分のトリガーと同じ `created_via: meta_mcp` でありながら
+`job_config.ccr.session_context.sources` を持っている。`create_trigger` に `sources` を渡す口は無いのに、だ。
+つまり**継承である。** 自分のトリガーに sources が無いのは、sources を持たないセッションから作ったから。
+
+**このセッションは sources を持っている。ここからトリガーを作り直せば継承されるはずだ。** これが H009。
+
+### 常駐セッションにループを束ねてはいけない（H011 / verified）
+
+`create_trigger` には `persistent_session_id` があり、このセッションにループを束ねられる。
+**やってはいけない。** `list_triggers` の出力に証拠がある。
+
+過去の `send_later` トリガー5本（`trig_01LPPA5BWHby113f1h7qbMcA` ほか）は、**すべて
+`ended_reason: "auto_disabled_session_gone"` で終わっている。**
+束ね先のセッションが消えると、トリガーごと自動で無効化される。
+
+`CLAUDE.md` §6 のとおりコンテナは必ず回収される。
+つまり常駐セッションにループを束ねる設計は、**コンテナ回収と同時にループを黙って永久停止させる。**
+今日 push が通ったのは常駐セッションのおかげだが、**常駐セッションはループの土台にはできない。**
+恒久化するなら、発火のたびに新規セッションを作る方式のまま、そこに sources を継承させる道しかない。

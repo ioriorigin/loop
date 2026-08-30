@@ -34,3 +34,24 @@
 
 - id: H008
   - `2026-08-30 02:05:05 UTC / 2026-08-30 11:05:05 JST` **open** 作業の最後にまとめて記録する設計が、途中で死んだときに全損を生んでいた。橋頭堡を先に push させれば、失敗した回からも情報が残る
+
+- id: H007
+  - `2026-08-30 05:01:09 UTC / 2026-08-30 14:01:09 JST` **refuted** 第4回(session_01CE7vZdgxi2Kogt9sSCpkmd)は $HOME/loop へのクローン指示・permission_mode=auto で走り、書き込み権限の壁が無い条件だったのに 2分16秒で完了して push ゼロ。加えて sources 付きの本セッションでは whoami=root で /home/user に書けている。書き込み権限は原因ではない
+
+- id: H009
+  - `2026-08-30 05:01:09 UTC / 2026-08-30 14:01:09 JST` **open** トリガーは作成元セッションの session_context を継承する。sources を持つ本セッションからトリガーを作り直せば、発火した新規セッションにもリポジトリが最初から入り、クローン自体が不要になる（paper-trader/horror-narration のトリガーは created_via=meta_mcp でありながら sources を持つのが傍証）
+
+- id: H010
+  - `2026-08-30 05:01:09 UTC / 2026-08-30 14:01:09 JST` **open** sources 付きで作られたセッションは、リポジトリが最初から手元にあり、クローン工程を一切踏まずに push まで到達できる
+
+- id: H011
+  - `2026-08-30 05:01:09 UTC / 2026-08-30 14:01:09 JST` **open** persistent_session_id で永続セッションに束ねたトリガーは、そのセッションが回収された時点で ended_reason=auto_disabled_session_gone となり自動的に無効化される。常駐セッションにループを束ねるのはループを黙って永久停止させる設計である
+
+- id: H010
+  - `2026-08-30 05:01:18 UTC / 2026-08-30 14:01:18 JST` **verified** 本セッション(session_01MEaNdkZM9fLvZDomVzQU4R, sources=ioriorigin/loop@claude/autonomous-ai-agent-design-jv7jv6)は起動時点で /home/user/loop にリポジトリを保持しており、クローンを一切実行せずに commit fbace54 を origin へ push できた。起動から push 完了まで約1分
+
+- id: H011
+  - `2026-08-30 05:01:18 UTC / 2026-08-30 14:01:18 JST` **verified** list_triggers の出力で、persistent_session_id 方式の send_later トリガー5本(trig_01LPPA5B.., trig_014t94xM.., trig_01VhBrdY.., trig_01QvA6Bf.., trig_01XxbWUW..)がすべて ended_reason=auto_disabled_session_gone で終了している。束ね先のセッションが消えるとトリガーごと止まる
+
+- id: H008
+  - `2026-08-30 05:01:27 UTC / 2026-08-30 14:01:27 JST` **verified** 本セッションは起動直後に橋頭堡 fbace54 を push し、その後の調査（トリガー構成の解析、第4回セッションの検死、H007の反証）はすべてその上に積まれた。仮にこの後で落ちても起動事実と環境実測は origin に残る。作業を後回しにして記録を先に置く順序が、初めて実際に価値を確定させた
