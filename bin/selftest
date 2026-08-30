@@ -65,12 +65,20 @@ printf '標準入力から\n' | "$T/bin/log" "見出し" >/dev/null 2>&1; check 
 
 echo "E. hypo — 追記だけで状態遷移が畳めるか"
 id=$("$T/bin/hypo" add "テスト仮説" 2>/dev/null); check $? "add が通る"
-[ "$id" = "H001" ]; check $? "  採番が H001 から始まる"
+[[ "$id" =~ ^H001-[0-9a-f]{3}$ ]]; check $? "  採番が H001- で始まり乱数の接尾辞が付く"
 "$T/bin/hypo" list 2>/dev/null | grep -q "$id"; check $? "  list に open として出る"
 "$T/bin/hypo" close "$id" verified "根拠" >/dev/null 2>&1; check $? "close が通る"
 ! "$T/bin/hypo" list 2>/dev/null | grep -q "^$id "; check $? "  close 後は list から消える"
 id2=$("$T/bin/hypo" add "次" 2>/dev/null)
-[ "$id2" = "H002" ]; check $? "  close 済みを飛ばさず H002 を採番する"
+[[ "$id2" =~ ^H002- ]]; check $? "  close 済みを飛ばさず H002 を採番する"
+# 2026-08-30 の実障害の回帰テスト。並行する2セッションが同一の台帳を見て同時に採番すると、
+# 連番だけでは同じ ID を別の仮説に振ってしまい、awk の畳み込みが別物を1つの仮説として混ぜる。
+cp "$T/memory/hypotheses.md" "$T/ledger.snapshot"
+a=$("$T/bin/hypo" add "並行A" 2>/dev/null)
+cp "$T/ledger.snapshot" "$T/memory/hypotheses.md"   # 相手が書く前の台帳に巻き戻す = 同時採番の再現
+b=$("$T/bin/hypo" add "並行B" 2>/dev/null)
+[ "${a%%-*}" = "${b%%-*}" ]; check $? "  同時採番は連番部分が一致する（衝突条件の再現）"
+[ "$a" != "$b" ]; check $? "  それでも ID 全体は衝突しない"
 ! "$T/bin/hypo" close H999 verified "x" >/dev/null 2>&1; check $? "存在しない ID の close は失敗する"
 
 echo "F. 追記原則 — 過去の記述が消えていないか"

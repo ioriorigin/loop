@@ -493,3 +493,81 @@ note: 常駐ワーカー起動 / whoami=root / HOME=/root / repo=/home/user/loop
   ただし可視性の変更は外向きで取り返しがつかず、記憶にはオーナーの環境情報も含まれる。
   `.claude/rules/autonomous-loop.md` の禁止事項に照らし、**オーナーの承認が要る**
 - **claude.ai の Routines UI からトリガーを作り直す。** UI 経由なら `sources` を設定できる可能性がある
+
+---
+
+## ループが常駐セッションに束ねられた。これは単一障害点である（2026-08-30 05:10 UTC / 14:10 JST）
+
+### 起きたこと
+
+常駐ワーカー（このセッション）が調査している最中に、**並行して動いていた別セッションが
+トリガーを差し替えた。** 気づいたのは `update_trigger` が `not found` を返したからである。
+
+| | 旧 | 新 |
+|---|---|---|
+| id | `trig_01XPhKjngbG5B5AjP8o3Meb8`（削除済み） | `trig_01Q2zbcXeTy6GXQD1Fp7tUZB` |
+| 名前 | 自律稼働ループ（毎時） | 自律稼働ループ（**常駐ワーカー方式**） |
+| cron | `44 */3 * * *` | `59 */3 * * *` |
+| 方式 | 発火のたびに新規セッション | **`persistent_session_id` = `session_01MEaNdkZM9fLvZDomVzQU4R`** |
+| `persist_session` | — | `true` |
+
+ループの本数は1本のまま。`.claude/rules/autonomous-loop.md` の制約4は保たれている。
+
+### なぜこれが危険か（H011 / verified）
+
+**束ね先のセッションが消えると、トリガーごと自動で無効化される。**
+`list_triggers` に証拠がある。過去の `send_later` 由来の永続束ねトリガー5本
+（`trig_01LPPA5BWHby113f1h7qbMcA` / `trig_014t94xMyNKScFSfNjc6RxyS` / `trig_01VhBrdYxzPD5wxBB8T8g9px`
+/ `trig_01QvA6BfHsJD1MuXhdaZDhGx` / `trig_01XxbWUWPjTA1MEmyE8rK77R`）は、
+**5本すべてが `ended_reason: "auto_disabled_session_gone"` で終わっている。**
+
+`CLAUDE.md` §6 のとおり、このコンテナは一定時間で必ず回収される。
+つまり現在のループは、**コンテナの寿命と心中する。** しかも死に方が静かだ。
+エラーも出ず、発火もせず、次の自分も生まれないので、誰も気づかない。
+「4回連続で push ゼロ」は騒がしい失敗であり、だから直せた。これは静かな失敗である。**そのぶん質が悪い。**
+
+### 今日の突破の正しい位置づけ
+
+`sources` 付きの常駐セッションは、**4回続いた失敗を破るための足場としては正しかった。**
+実際、これで初めて push が通り、原因の切り分けが進んだ。
+
+だが**足場は土台ではない。** 恒久的なループの土台にはできない。
+「今日 push が通った手段」と「明日も push が通り続ける手段」は別物である。
+突破できた嬉しさで、この2つを同一視しないこと。
+
+### 恒久化への道と、そこで詰まっていること
+
+正しい恒久形は、**発火のたびに新規セッションを作る方式のまま、そこに `sources` を継承させること**である（H009）。
+`create_trigger` / `update_trigger` に `sources` を渡す口は無いが、
+`paper-trader` と `horror-narration` のトリガーは同じ `created_via: meta_mcp` でありながら
+`job_config.ccr.session_context.sources` を持っている。**作成元セッションからの継承と考えるほかない。**
+このセッションは `sources` を持っている。ここから作れば継承されるはずだった。
+
+**しかし `create_trigger` は auto モードの分類器に拒否された。**
+
+```
+Permission for this action was denied by the Claude Code auto mode classifier.
+Reason: Blocked by classifier.
+```
+
+これは実在する壁である。過去に「存在しない壁を殴った」失敗をしている以上、迂回は試みない。
+**H009 は、loop 単独では検証できない。オーナーの手が要る。**
+
+### ループが死んでいたときの復旧手順（オーナー向け・未検証）
+
+もしループが止まっていたら、原因はほぼ確実に `auto_disabled_session_gone` である。
+`list_triggers` で `trig_01Q2zbcXeTy6GXQD1Fp7tUZB` の `enabled` と `ended_reason` を見れば分かる。
+
+復旧するには、**`sources` を持つセッションから、新規セッション方式のトリガーを作り直す。**
+
+1. `sources = https://github.com/ioriorigin/loop`（rev `claude/autonomous-ai-agent-design-jv7jv6`）を
+   付けたセッションを立てる（このセッションと同じ作り方）
+2. そのセッションから `create_trigger` を呼ぶ。**`create_new_session_on_fire: true`** を指定し、
+   `persistent_session_id` は**使わない**
+3. `cron_expression` は `59 */3 * * *`（3時間ごと）。**頻度を上げないこと**
+4. 作成後に `list_triggers` で `job_config.ccr.session_context.sources` が入っているか確認する。
+   **入っていなければ継承は起きていない。** その場合 H009 は refuted であり、別の道を探す必要がある
+5. 古いトリガーを削除し、ループを1本に戻す
+
+**この手順自体が未検証である。** 検証できなかった理由は上記のとおり分類器の拒否。
+検証できていないものを「直った」と書かない。ここに書いたのは仮説と手順であって、実績ではない。

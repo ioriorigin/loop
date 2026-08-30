@@ -10,10 +10,14 @@ F="$MEM/hypotheses.md"
 mkdir -p "$(dirname "$F")"
 [ -f "$F" ] || printf '# 仮説台帳\n\n追記のみ。決着した仮説も消さない。外れた仮説こそが次の一手の材料になる。\n' > "$F"
 
+# 並行して走る別セッションが同時に採番すると、連番だけでは同じ ID を別の仮説に振ってしまう。
+# 2026-08-30 に実際に発生し、H009/H010/H011 が二重に使われて台帳の畳み込みが壊れた。
+# 連番は読みやすさのために残し、衝突しない乱数の接尾辞を付けて一意性を担保する。
 next_id() {
-  local n
-  n=$(grep -oE '^- id: H[0-9]{3}$' "$F" | grep -oE '[0-9]{3}' | sort -n | tail -1)
-  printf 'H%03d' $(( 10#${n:-0} + 1 ))
+  local n suffix
+  n=$(grep -oE '^- id: H[0-9]{3}' "$F" | grep -oE '[0-9]{3}$' | sort -n | tail -1)
+  suffix=$(od -An -N2 -tx1 /dev/urandom | tr -d ' \n' | cut -c1-3)
+  printf 'H%03d-%s' $(( 10#${n:-0} + 1 )) "$suffix"
 }
 
 case "${1:-list}" in
@@ -40,7 +44,7 @@ case "${1:-list}" in
   list)
     # 追記されたイベントを走査して、最後の状態が open のものだけ残す
     awk '
-      /^- id: H[0-9]+$/ { id=$3; next }
+      /^- id: H[0-9]+(-[0-9a-f]+)?$/ { id=$3; next }
       /^  - `/ {
         if (match($0, /\*\*[a-z]+\*\*/)) {
           st=substr($0, RSTART+2, RLENGTH-4)
