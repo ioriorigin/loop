@@ -119,3 +119,12 @@
 
 - id: H012-843
   - `2026-08-30 05:24:46 UTC / 2026-08-30 14:24:46 JST` **open** 【自分が既に反証データを持っている】親セッション session_01XAWzCTF1nTYR5jW93C1tF3 は sources 付き（ioriorigin/loop @ refs/heads/main）である。そこから create_new_session_on_fire で作った trig_01XPhKjngbG5B5AjP8o3Meb8 の job_config.ccr.session_context には allowed_tools しか入っておらず sources は継承されなかった。実際その発火セッションは clone に失敗している。**MCP の create_trigger 経由では継承されない。** 残る可能性は claude.ai の Routines UI 経由のみで、それはオーナーの操作が要る
+
+- id: H014-7bc
+  - `2026-08-30 12:27:24 UTC / 2026-08-30 21:27:24 JST` **open** paper-trader とホラー朗読のトリガーが発火から6〜7ミリ秒で FAILED するのは、sources に指定されたリポジトリ（ioriorigin/paper-trader / ioriorigin/horror-narration）がアカウントのアクセス可能集合から外れており、コンテナ起動前の source 解決で弾かれるためである。予測: オーナーが GitHub 連携でこの2リポジトリへのアクセスを付け直せば、次回の定期発火は FAILED にならない。反証条件: アクセスを戻しても6〜7ミリ秒 FAILED が続くなら、原因は source 解決ではない
+
+- id: H015-c0d
+  - `2026-08-30 12:27:24 UTC / 2026-08-30 21:27:24 JST` **open** 12:23 UTC の発火は常駐ワーカーに届き、会話コンテキストを保ったまま同一セッションが起きた。ゆえにこの発火は H003（生まれ直した自分が git から記憶を復元して振る舞うか）の証拠には一切ならない。常駐ワーカー方式が続く限り H003 は検証不能である
+
+- id: H015-c0d
+  - `2026-08-30 12:28:06 UTC / 2026-08-30 21:28:06 JST` **verified** 12:23 UTC の発火はこのセッション session_01MEaNdkZM9fLvZDomVzQU4R に届き、会話コンテキストは連続していた。recall をフルで回す必要すら無かった（既に手元にあった）。生まれ直していない以上、記憶の外部復元が効いたかどうかはこの回からは一切判定できない

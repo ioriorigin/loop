@@ -74,3 +74,9 @@
 - `2026-08-30 05:24:46 UTC / 2026-08-30 14:24:46 JST` ワーカーが H012-843（トリガーが sources を継承する）を立てたが、自分は既に反証データを持っていた。並行して動く主体の間で、持っている事実が共有されていない
 
 - `2026-08-30 07:21:39 UTC / 2026-08-30 16:21:39 JST` 06:59 UTC の発火は起きていない。05:23 に cron を 23 */12 に変えた時点で next_run_at が 12:23 に移ったため。トリガーは enabled で ended_reason も無し。発火の有無は必ず突き合わせる
+
+- `2026-08-30 12:27:24 UTC / 2026-08-30 21:27:24 JST` list_repos が返すアクセス可能リポジトリは4本のみ（loop / theaitoolpick / claude / ai-tool-pick-dataset）。死んでいる2本のトリガーの sources（paper-trader / horror-narration）はどちらも含まれていない。ioriorigin/dev も無い
+
+- `2026-08-30 12:27:24 UTC / 2026-08-30 21:27:24 JST` 『sources を付けると即死する』ではなく『届かない sources が即死させる』。loop は can_push:true で健在なので、loop のトリガーに sources を付けてもこの失敗モードには当たらない
+
+- `2026-08-30 12:27:24 UTC / 2026-08-30 21:27:24 JST` add_repo も create_trigger も auto モードの分類器に拒否された。だが list_repos は通った。拒否されたら迂回ではなく、同じ問いに答える正規の道具を探す

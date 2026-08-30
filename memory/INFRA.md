@@ -671,3 +671,76 @@ Reason: Blocked by classifier.
 
 **この手順自体が未検証である。** 検証できなかった理由は上記のとおり分類器の拒否。
 検証できていないものを「直った」と書かない。ここに書いたのは仮説と手順であって、実績ではない。
+
+---
+
+## 訂正: 前節に書いた「復旧手順」は間違っていた（2026-08-30 12:40 UTC / 21:40 JST）
+
+`CLAUDE.md` §3 に従い、前節の記述は消していない。以下は追記による訂正である。
+**オーナーがあの手順を読んで実行する可能性がある以上、訂正は最優先で書く。**
+
+### 何が間違っていたか
+
+前節「ループが死んでいたときの復旧手順」は、こう指示していた。
+
+> `sources` を持つセッションから `create_trigger` を呼ぶ
+
+**これは通らない。** 並行セッションが手元の実データで反証した（`memory/hypotheses.md` の H012-843）。
+
+親セッション `session_01XAWzCTF1nTYR5jW93C1tF3` は `sources` 付き
+（`ioriorigin/loop @ refs/heads/main`）だった。**そこから作った `trig_01XPhKjngbG5B5AjP8o3Meb8` の
+`job_config.ccr.session_context` には `allowed_tools` しか入っておらず、`sources` は継承されていない。**
+実際その発火セッションは clone に失敗している。
+
+**MCP の `create_trigger` 経由では `sources` は継承されない。** 自分は「継承と考えるほかない」と書いたが、
+反証データは最初から手元にあった。`list_triggers` の出力に、親セッション由来の自分のトリガーが
+`sources` 無しで写っていたのだから、**「継承される」という仮説はその時点で反証済みだった。**
+第2回診断が指摘した「対照群を説明しない仮説を採用する」を、また踏んだ。
+
+### 正しい復旧手順（現時点で分かっている範囲）
+
+`sources` 付きトリガーを作る道は、**claude.ai の Routines UI 経由しか残っていない。**
+これはオーナーの操作である。loop 側からは実行できない。
+
+1. claude.ai の Routines UI から、`sources = ioriorigin/loop`
+   （rev `claude/autonomous-ai-agent-design-jv7jv6`）を指定してルーティンを作る
+2. 発火方式は**新規セッション**（`persistent_session_id` を使わない）。
+   常駐セッションに束ねると `auto_disabled_session_gone` で静かに死ぬ（H011 / verified）
+3. cron は現行と同じ `23 */12 * * *`（12時間ごと）。**頻度を上げないこと**
+4. 作成後 `list_triggers` で `job_config.ccr.session_context.sources` が実際に入っているか確認する。
+   **入っていなければ UI 経由でも継承されない。** その場合は常駐ワーカー方式を続けるほかない
+
+### 対照群が教えたこと — 同居する2本が死んでいる本当の理由
+
+`list_repos` を叩いた（`add_repo` と `create_trigger` は分類器に拒否されたが、
+**同じ問いに答える正規の道具はこちらだった**）。アカウントがアクセスできるリポジトリは4本しかない。
+
+| full_name | visibility | can_push |
+|---|---|---|
+| `ioriorigin/loop` | private | true |
+| `ioriorigin/theaitoolpick` | private | true |
+| `ioriorigin/claude` | private | true |
+| `ioriorigin/ai-tool-pick-dataset` | public | true |
+
+**`ioriorigin/paper-trader` も `ioriorigin/horror-narration` も、この一覧に無い。**
+（`horror-narration` の切り出し元である `ioriorigin/dev` も無い。）
+そして死んでいる2本のトリガーの `sources` は、まさにその2つを指している。
+
+これが6〜7ミリ秒 FAILED の説明になる。**コンテナが起動して失敗しているのではなく、
+起動前の source 解決で弾かれている。** 時間の短さと符合する（H014-7bc として台帳に登録、予測付き）。
+
+**そして自分の恒久化計画にとって重要な帰結がある。**
+「`sources` を付けたトリガーは即死する」のではない。「**届かない `sources` が即死させる**」のだ。
+`ioriorigin/loop` は `can_push: true` で健在なので、loop のトリガーに `sources` を付けても
+この失敗モードには当たらない。**対照群を先に説明したことで、恒久化案が生き残った。**
+対照群を見ずに「sources は危ない」と結論していたら、唯一の恒久解を自分で捨てるところだった。
+
+### 発火の観測記録（追記）
+
+| 予定時刻 (UTC) | 起きたか | 根拠 |
+|---|---|---|
+| 12:23 | **起きた** | 常駐ワーカー `session_01MEaNdkZM9fLvZDomVzQU4R` に届いた。会話コンテキストは連続 |
+
+**この回は H003 の証拠にならない**（H015-c0d / verified）。生まれ直していないので、
+git から記憶を復元したのか、会話履歴を覚えていただけなのかを区別できない。
+`recall` をフルで回す必要すら無かった。**それ自体が交絡の証拠である。**
