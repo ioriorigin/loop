@@ -359,3 +359,77 @@ H007（書き込み権限）も、SSH 形式の禁止も、`/tmp` への段階�
 つまり常駐セッションにループを束ねる設計は、**コンテナ回収と同時にループを黙って永久停止させる。**
 今日 push が通ったのは常駐セッションのおかげだが、**常駐セッションはループの土台にはできない。**
 恒久化するなら、発火のたびに新規セッションを作る方式のまま、そこに sources を継承させる道しかない。
+## 根本原因の確定 — 4回の失敗は全部これ1つだった（2026-08-30 11:10 JST / 02:10 UTC）
+
+### 決め手になった観測
+
+第4回セッションが待っていた許可プロンプトの中身。
+
+```
+GIT_CURL_VERBOSE=1 git clone https://github.com/ioriorigin/loop /tmp/loop2
+説明: "Attempt clone with verbose curl output for diagnostics"
+```
+
+**素の HTTPS クローンが失敗している。** だから診断に回っていた。
+しかも `/tmp/loop2` — `$HOME` も `/tmp` も既に試した後だ。
+**H007（`/home/user` の書き込み権限）は外れ。パスの問題ではない。**
+
+### 確定した原因
+
+`list_repos` で確認した。
+
+```
+ioriorigin/loop  visibility: private  can_push: true
+```
+
+**リポジトリは private である。**
+
+- トリガー起動のコンテナは、`sources` に宣言されたリポジトリの認証情報だけを受け取る
+- **loop のトリガーには `sources` が無い。** `create_trigger` / `update_trigger` に渡す口が無いため
+- したがって、起こされたセッションは private リポジトリを clone できない
+- 記憶に到達できないので、何をどう指示しても push は永久に発生しない
+
+同じ環境の他2本（paper-trader / ホラー朗読）に `sources` が設定されているのは、
+おそらくこの認証の受け渡しのためだ。**最初にそこを見ていれば、4回の失敗は全部避けられた。**
+
+### 4回の失敗の見立ての変遷 — 全部外れていた
+
+| 回 | そのとき立てた原因 | 実際 |
+|---|---|---|
+| 1 | リポジトリが無い（正しいが不完全） | clone できない理由を見ていなかった |
+| 2 | 許可プロンプトで BLOCKED | 症状であって原因ではない |
+| 3 | `/home/user` の書き込み権限 | 外れ |
+| 4 | — | **private + sources 無し = 認証情報が無い** |
+
+見立てが3回続けて外れた。しかも毎回「今度こそ分かった」と思って対策を打っていた。
+**症状を原因と取り違え続けた。** BLOCKED も clone 失敗も、認証が無いことの現れでしかなかった。
+
+一番効いた観測は、推測ではなく `get_session` の `pending_action` と `list_repos` の1行だった。
+**手元の道具で事実を1つ取るほうが、賢い推論を3回重ねるより速い。**
+
+### 打った手 — sources 付きの永続セッション
+
+`create_trigger` に `sources` は渡せない。だが **`create_session` には `source_url` がある。**
+
+そこで `sources` 付きの永続セッションを作った。
+
+```
+session_01MEaNdkZM9fLvZDomVzQU4R
+sources: https://github.com/ioriorigin/loop @ claude/autonomous-ai-agent-design-jv7jv6
+tags: loop-worker
+```
+
+このセッションはリポジトリと認証情報を持って生まれる。
+トリガーを `persistent_session_id` でこれに束ねれば、毎回新規コンテナを立てずに、
+同じセッションを繰り返し起こせる。**手持ちの道具で辿り着ける唯一の突破口。**
+
+既知のリスク: セッションが完全に失われるとトリガーは `auto_disabled_session_gone` で自動停止する。
+実際に他のトリガーがその理由で無効化されている。恒久的な解にはならない可能性がある。
+
+### 恒久的な解の候補（自分では実行しない）
+
+- **リポジトリを public にする。** clone の認証が不要になり、新規セッション方式がそのまま動く。
+  ただし可視性の変更は外向きで取り返しがつかず、記憶にはオーナーの環境情報も含まれる。
+  **`.claude/rules/autonomous-loop.md` の禁止事項に照らし、自分の判断ではやらない。オーナーの承認が要る**
+- **claude.ai の Routines UI からトリガーを作り直す。** UI 経由なら `sources` を設定できる可能性がある。
+  これもオーナーの操作が要る
