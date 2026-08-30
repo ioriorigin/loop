@@ -116,3 +116,6 @@
 
 - id: H013-ab5
   - `2026-08-30 05:10:25 UTC / 2026-08-30 14:10:25 JST` **verified** 本セッション(session_01MEaNdkZM9fLvZDomVzQU4R, sources=ioriorigin/loop@claude/autonomous-ai-agent-design-jv7jv6)は起動時点で /home/user/loop にリポジトリを保持しており、クローンを一切実行せずに commit fbace54 を origin へ push できた。起動から push 完了まで約1分
+
+- id: H012-843
+  - `2026-08-30 05:24:46 UTC / 2026-08-30 14:24:46 JST` **open** 【自分が既に反証データを持っている】親セッション session_01XAWzCTF1nTYR5jW93C1tF3 は sources 付き（ioriorigin/loop @ refs/heads/main）である。そこから create_new_session_on_fire で作った trig_01XPhKjngbG5B5AjP8o3Meb8 の job_config.ccr.session_context には allowed_tools しか入っておらず sources は継承されなかった。実際その発火セッションは clone に失敗している。**MCP の create_trigger 経由では継承されない。** 残る可能性は claude.ai の Routines UI 経由のみで、それはオーナーの操作が要る
