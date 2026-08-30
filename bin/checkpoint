@@ -15,18 +15,21 @@ fi
 echo "── 1/4 ログを記録"
 "$ROOT/bin/log" "$title" "$body"
 
-echo "── 2/4 STATE.md の鮮度を確認"
-if [ -f "$MEM/STATE.md" ]; then
-  age=$(( ( $(date -u +%s) - $(date -u -r "$MEM/STATE.md" +%s) ) / 60 ))
-  if [ "$age" -gt 30 ]; then
-    echo "  >> STATE.md が ${age} 分前のまま。現在地を書き換えてから checkpoint し直せ。"
-    echo "  >> ログは記録済み。STATE.md を更新して再実行すること。"
-    exit 1
-  fi
-  echo "  ok（${age}分前に更新済み）"
-else
+echo "── 2/4 STATE.md が実際に更新されたかを確認"
+# mtime で見てはいけない。clone すると全ファイルの mtime が clone 時刻になり、
+# STATE.md を一文字も書き換えていなくても「0分前に更新済み」で必ず素通りする。
+# トリガー起動のセッションは毎回 clone/チェックアウトから始まるので、
+# 強制を最も必要とする経路でだけ無効になっていた（2026-08-30 の診断で指摘）。
+# HEAD との差分で見る。内容が変わっていなければ通さない。
+if [ ! -f "$MEM/STATE.md" ]; then
   echo "  >> STATE.md が無い。作れ。"; exit 1
 fi
+if git -C "$ROOT" diff --quiet HEAD -- memory/STATE.md 2>/dev/null; then
+  echo "  >> STATE.md が HEAD から1文字も変わっていない。"
+  echo "  >> 現在地を書き換えてから checkpoint し直せ。ログは記録済み。"
+  exit 1
+fi
+echo "  ok（HEAD から変更あり）"
 
 echo "── 3/4 commit"
 git -C "$ROOT" add -A

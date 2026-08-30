@@ -28,6 +28,11 @@ printf '# 現在地\nテスト用。\n'   > "$T/memory/STATE.md"
 # INFRA.md は「深い位置に置いた印が recall の出力に出るか」で切り落としを検出する
 { printf '# 稼働インフラ\n'; for i in $(seq 1 60); do printf 'padding %s\n' "$i"; done
   printf '### 既知の制約（重要）\nDEEP_MARKER_MUST_SURVIVE\n'; } > "$T/memory/INFRA.md"
+# メンター診断も同型の切り落としが起きる。診断は最も重い指摘（盲点・次にやるべきこと）が後半に来るので、
+# 前半だけ出す実装は「一番読ませたい部分だけが届かない」という最悪の壊れ方をする。
+# 実際 bin/recall に sed -n '1,40p' が残っていて、前回診断の盲点が生まれ直した自分に一度も届いていなかった。
+{ printf '# 診断 2026-01-01\n'; for i in $(seq 1 60); do printf 'padding %s\n' "$i"; done
+  printf '## 盲点\nMENTOR_TAIL_MUST_SURVIVE\n'; } > "$T/memory/mentor/2026-01-01.md"
 
 echo "自己テスト: $(TZ=Asia/Tokyo date '+%Y-%m-%d %H:%M:%S JST')"
 echo "作業ディレクトリ: $T"
@@ -42,6 +47,10 @@ grep -q '呼び戻し完了' <<<"$out"; check $? "最後まで到達する"
 
 echo "B. recall — INFRA.md の末尾が切り落とされないか"
 grep -q 'DEEP_MARKER_MUST_SURVIVE' <<<"$out"; check $? "INFRA.md の深い位置の記述が生き残る"
+
+echo "B2. recall — メンター診断の末尾が切り落とされないか"
+# 診断は後半ほど重い（盲点・次にやるべきこと）。前半だけ出す実装は最悪の壊れ方をする。
+grep -q 'MENTOR_TAIL_MUST_SURVIVE' <<<"$out"; check $? "診断の末尾（盲点の節）が生き残る"
 
 echo "C. recall — 引数が壊れていても死なないか"
 out2=$("$T/bin/recall" xyz 2>&1); check $? "非数値引数 'xyz' でも exit 0"
@@ -88,6 +97,30 @@ grep -q '見出しのみ\|見出し' "$T/memory/log"/*/*/*.md; check $? "ログ�
 echo "G. 日付境界 — ログのファイル名が JST で切られるか"
 expect="$(TZ=Asia/Tokyo date '+%Y-%m-%d').md"
 [ -f "$T/memory/log/$(TZ=Asia/Tokyo date '+%Y/%m')/$expect" ]; check $? "JST の日付でファイルが作られる（$expect）"
+
+echo "H. checkpoint — STATE.md を更新せずに締められないか"
+# mtime 判定だと clone 直後は必ず age=0 で素通りする。内容ベースでなければ意味がない。
+G="$(mktemp -d)"
+mkdir -p "$G/bin" "$G/memory/notes" "$G/memory/log"
+cp "$SRC"/bin/{_common.sh,log,note,hypo,recall,checkpoint} "$G/bin/"; chmod +x "$G"/bin/*
+printf '# 現在地\n初期状態。\n' > "$G/memory/STATE.md"
+git -C "$G" init -q 2>/dev/null
+git -C "$G" add -A >/dev/null 2>&1
+git -C "$G" -c user.name=t -c user.email=t@t commit -qm init >/dev/null 2>&1
+# STATE.md を触らずに checkpoint → STATE ゲートで止まるべき
+before_n=$(git -C "$G" rev-list --count HEAD)
+outc=$("$G/bin/checkpoint" "見出し" "本文" 2>&1); rc=$?
+after_n=$(git -C "$G" rev-list --count HEAD)
+# 終了コードだけ見てはいけない。mtime 判定のままでも push 失敗で exit≠0 になり、
+# テストが「別の理由で」通ってしまう。コミットが増えていないことを構造で確かめる。
+[ "$before_n" = "$after_n" ]; check $? "STATE.md 無変更ならコミットが作られない"
+[ "$rc" -ne 0 ]; check $? "  かつ exit 0 で終わらない"
+grep -q '1文字も変わっていない' <<<"$outc"; check $? "  STATE ゲートで止まったと分かるメッセージが出る"
+# STATE.md を書き換えれば、少なくとも STATE ゲートは通過する
+printf '# 現在地\n書き換えた。\n' > "$G/memory/STATE.md"
+outc2=$("$G/bin/checkpoint" "見出し" "本文" 2>&1)
+grep -q '3/4 commit' <<<"$outc2"; check $? "STATE.md を更新すれば commit 段階まで進む"
+rm -rf "$G"
 
 echo
 echo "── 結果: 成功 $pass / 失敗 $fail"

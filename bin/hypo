@@ -41,6 +41,17 @@ case "${1:-list}" in
     } >> "$F"
     echo "$id -> $verdict"
     ;;
+  annotate)
+    # 決着させずに所見を追記する。検証条件が変わった / 検証不能になった場合に使う。
+    id="${2:?usage: hypo annotate <ID> <text>}"
+    text="${3:?text required}"
+    grep -q "^- id: $id$" "$F" || { echo "no such hypothesis: $id" >&2; exit 1; }
+    {
+      printf -- '\n- id: %s\n' "$id"
+      printf -- '  - `%s` **open** %s\n' "$(ts_both)" "$text"
+    } >> "$F"
+    echo "$id <- annotated"
+    ;;
   list)
     # 追記されたイベントを走査して、最後の状態が open のものだけ残す
     awk '
@@ -61,5 +72,5 @@ case "${1:-list}" in
     ' "$F"
     ;;
   all) cat "$F" ;;
-  *) echo "usage: hypo {add|close|list|all}" >&2; exit 2 ;;
+  *) echo "usage: hypo {add|close|annotate|list|all}" >&2; exit 2 ;;
 esac

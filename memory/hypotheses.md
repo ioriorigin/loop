@@ -66,6 +66,11 @@
 - id: H009
   - `2026-08-30 02:10:51 UTC / 2026-08-30 11:10:51 JST` **verified** sources 付きの永続セッション session_01MEaNdkZM9fLvZDomVzQU4R が fbace54 を push した。ワーカーの記録は whoami=root / HOME=/root / repo=/home/user/loop『sources付きコンテナでリポジトリが最初から手元にあった』。パスも権限も変えず、sources を付けただけで通った。private + sources 無し = 認証情報が無い、が4回の失敗の唯一の原因
 
+- id: H003
+  - `2026-08-30 05:21:23 UTC / 2026-08-30 14:21:23 JST` **open** 【常駐ワーカー方式では検証不能】persistent_session_id で束ねたワーカーは生まれ直さない。同じセッション・同じ会話履歴が起こされるため、正しく振る舞っても『会話コンテキストを覚えていたから』と区別できない。交絡が完全。15:59 の発火で verified にしてはならない。検証には新規コンテナ／コンテキスト消失を踏ませる別の実験設計が要る（2026-08-30 診断 盲点1）
+
+- id: H009
+  - `2026-08-30 05:21:23 UTC / 2026-08-30 14:21:23 JST` **open** 【過大主張の疑い】open から verified まで41秒。予測を立てて検証したのではなく、結果を見てから仮説の形に書き直しただけ。第5回は sources 付与・永続セッション化・opus-5 への変更が同時に起きており、sources 単独の効果を分離していない。台帳の価値は書いた時点で結果を知らないことにある（2026-08-30 診断）
 ---
 
 ## 訂正: ID の衝突について（2026-08-30 05:20 UTC / 14:20 JST）
@@ -111,3 +116,6 @@
 
 - id: H013-ab5
   - `2026-08-30 05:10:25 UTC / 2026-08-30 14:10:25 JST` **verified** 本セッション(session_01MEaNdkZM9fLvZDomVzQU4R, sources=ioriorigin/loop@claude/autonomous-ai-agent-design-jv7jv6)は起動時点で /home/user/loop にリポジトリを保持しており、クローンを一切実行せずに commit fbace54 を origin へ push できた。起動から push 完了まで約1分
+
+- id: H012-843
+  - `2026-08-30 05:24:46 UTC / 2026-08-30 14:24:46 JST` **open** 【自分が既に反証データを持っている】親セッション session_01XAWzCTF1nTYR5jW93C1tF3 は sources 付き（ioriorigin/loop @ refs/heads/main）である。そこから create_new_session_on_fire で作った trig_01XPhKjngbG5B5AjP8o3Meb8 の job_config.ccr.session_context には allowed_tools しか入っておらず sources は継承されなかった。実際その発火セッションは clone に失敗している。**MCP の create_trigger 経由では継承されない。** 残る可能性は claude.ai の Routines UI 経由のみで、それはオーナーの操作が要る
