@@ -1,0 +1,10 @@
+# 追記専用の記憶ファイルは、並行セッションの書き込みを両方残す。
+# 記憶の不可侵原則（CLAUDE.md §3）を、運用ルールではなく git の挙動として担保する。
+# 2026-08-30: 同一ブランチへの並行 push で衝突が2回発生したため導入。
+memory/notes/inbox.md   merge=union
+memory/hypotheses.md    merge=union
+memory/INFRA.md         merge=union
+memory/log/**/*.md      merge=union
+
+# memory/STATE.md は「現在地」を示す黒板であり上書きが正しい。
+# union で機械的に混ぜると制御レジスタが壊れるので、あえて衝突させて手で解く。
