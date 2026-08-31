@@ -134,3 +134,6 @@
 
 - id: H014-7bc
   - `2026-08-30 12:41:49 UTC / 2026-08-30 21:41:49 JST` **open** 【親セッションが裏取り】list_repos をこちらでも実行し、アクセス可能なリポジトリが loop / theaitoolpick / claude / ai-tool-pick-dataset の4本のみで paper-trader も horror-narration も含まれないことを確認した。ワーカーの死因特定は正しい
+
+- id: H016-79c
+  - `2026-08-31 00:42:42 UTC / 2026-08-31 09:42:42 JST` **open** ワーカーを世代交代させれば、コストが初期値に戻り、かつ会話履歴という交絡因子が消えるので H003 が検証可能になる。新ワーカーが recall だけで STATE の続きを再開できれば verified
