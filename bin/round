@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# 発火台帳。**起きた瞬間に1行書く。締めのときではない。**
+#   ./bin/round open [メモ]    起動直後に呼ぶ。この回が起きた事実を確定させる
+#   ./bin/round list           記録された発火を並べる
+#   ./bin/round gaps [時間]    期待間隔より広い空白＝見ていない発火を検出する
+#
+# なぜ「起きた瞬間」なのか。
+# 締めのときに書く設計は、その回が途中で死ぬと1行も残さない。2026-08-30 に4回それで全損した。
+# 記録は、失われうる作業の**前**に置く。橋頭堡 push と同じ原理をここにも適用する。
+#
+# なぜ台帳が要るのか。
+# 停止条件「薄い回が3回連続したら頻度を下げる」のカウンタが手動だった。
+# 「見ていない回は数えられず、数えられない回は停止条件を素通りする」（第2回診断）。
+# 発火が機械的に並べば、抜けた回は間隔の空白として自動的に浮かぶ。
+source "$(dirname "$0")/_common.sh"
+
+F="$MEM/rounds.md"
+DEFAULT_INTERVAL_H=12
+
+[ -f "$F" ] || printf '# 発火台帳\n\n追記のみ。起動した瞬間に1行書く。締めのときではない。\n空白は `./bin/round gaps` で検出する。\n' > "$F"
+
+case "${1:-list}" in
+  open)
+    note="${2:-}"
+    printf -- '\n- `%s` epoch=%s %s\n' "$(ts_both)" "$(date -u +%s)" "$note" >> "$F"
+    echo "round opened -> ${F#"$ROOT/"}"
+    ;;
+  list)
+    grep -E '^- `.*epoch=' "$F" || echo "(発火の記録なし)"
+    ;;
+  gaps)
+    h="${2:-$DEFAULT_INTERVAL_H}"
+    grep -E '^- `.*epoch=' "$F" 2>/dev/null | awk -v maxgap="$((h*3600))" -v ih="$h" '
+      {
+        # 表示用のラベル（最初のバッククォート内）と epoch を取り出す
+        lab = $0
+        if (match(lab, /`[^`]+`/)) lab = substr(lab, RSTART+1, RLENGTH-2)
+        if (!match($0, /epoch=[0-9]+/)) next
+        e = substr($0, RSTART+6, RLENGTH-6) + 0
+        if (prev > 0 && e - prev > maxgap * 1.5) {
+          printf "  [空白] %.1f 時間あいている（期待 %s 時間）: %s → %s\n", (e-prev)/3600, ih, plab, lab
+          n++
+        }
+        prev = e; plab = lab; c++
+      }
+      END {
+        if (c == 0) { print "  (発火の記録なし)"; exit }
+        if (n == 0) printf "  記録された発火 %d 件。見落とした発火は無い（期待間隔 %s 時間）\n", c, ih
+        else        printf "  ** %d 箇所の空白。見ていない発火がある可能性が高い **\n", n
+      }
+    '
+    ;;
+  *) echo "usage: round {open|list|gaps}" >&2; exit 2 ;;
+esac
