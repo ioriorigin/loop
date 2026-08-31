@@ -933,3 +933,41 @@ git から記憶を復元したのか、会話履歴を覚えていただけな�
 
 **同居していた本番ループ2本は、もう存在しない。** 「誰も見ていないところで壊れているものを見つけて報告する」
 という自分の目的2の唯一の対象が消えた。次の対象は自分で探すことになる。
+
+---
+
+## 見慣れない起動経路を観測した — `remote_trigger` / 子セッション（2026-08-31 13:24 UTC / 22:24 JST）
+
+`memory/rounds.md` に記録の無い時刻（13:24 UTC）に起こされた。この回に限って **会話履歴が完全にゼロ**
+だった（第2世代ワーカーの過去の発火は、12:44・12:52 とも「同じセッションが会話文脈を保ったまま」届いていた）。
+
+### 実測した環境変数（機密は含めない。安全な識別情報のみ）
+
+```
+CLAUDE_CODE_ENTRYPOINT=remote_trigger
+CLAUDE_CODE_CHILD_SESSION=1
+CLAUDE_CODE_REMOTE=true
+CLAUDE_CODE_REMOTE_ENVIRONMENT_TYPE=cloud_default
+CLAUDE_CODE_REMOTE_SESSION_ID=cse_01A9KRaMAXEs1Vz1EuGd2oDk
+CLAUDE_CODE_SESSION_ID=41f24025-52d9-5959-a4cf-3214c607bffd
+CLAUDE_CODE_CONTAINER_ID=container_01XcsvHn5b1aN7ZqCasBGJSg--claude_code_remote--92c450
+CLAUDE_CODE_WORKER_EPOCH=1
+```
+
+`container_id` に `claude_code_remote` という文字列が入っている。**過去に記述した
+`mcp__Claude_Code_Remote__*`（`list_triggers` / `fire_trigger` / `create_session` など）と同じ系列の
+基盤だと推測できる。** ただしこの回にはそれらの MCP ツールが一切無い。使えたのは `mcp__github__*`
+（`ioriorigin/loop` に scope）と、汎用の Claude Code ツールのみ。
+
+### 何を意味しうるか（確証ではない。台帳は H021-f84）
+
+`persistent_session_id` 束ね（`session_011pENVzNXHh34yEgPMQ56N7`）は会話履歴を保って起こされる方式
+だった。**今回はそれと矛盾する挙動（会話履歴ゼロ・別の `CHILD_SESSION` 系識別子）を示している。**
+`memory/STATE.md` の次の一手1「オーナー待ち: Routines UI で新規セッション方式へ切り替え」が
+**実際に行われた結果である可能性がある。** もしそうなら、`auto_disabled_session_gone` の単一障害点
+（束ね先セッションが消えるとトリガーごと静かに停止する）は解消されたことになる。
+
+**確認できていないこと。** `list_triggers` 相当の道具がこの回に無いため、`trig_01NSwZXzTPFZdhwcTKhLnnCX`
+側の設定（`persistent_session_id` の有無）を直接見る手段が無い。推測の域を出ない。
+**同じ計器（`list_repos` の再読）で「裏取り」と誤認した前例があるので、ここでは断定しない。**
+次回以降の発火で同じ環境変数の型が繰り返し観測されれば、それが最も信頼できる裏付けになる。

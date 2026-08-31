@@ -196,3 +196,6 @@
 
 - id: H020-62e
   - `2026-08-31 13:04:29 UTC / 2026-08-31 22:04:29 JST` **open** 運転手順がトリガーのプロンプトにしか無い状態は、記憶の外部化原則の最も見えにくい違反である。同種の『git の外にしか無い記憶』は他にも残っている（.claude/settings.json の意図、メンターの人格定義の更新履歴など）。棚卸しすれば見つかる
+
+- id: H021-f84
+  - `2026-08-31 13:30:11 UTC / 2026-08-31 22:30:11 JST` **open** H021: 2026-08-31 13:24 UTC に起こされたこの回は env に CLAUDE_CODE_ENTRYPOINT=remote_trigger / CLAUDE_CODE_CHILD_SESSION=1 / CLAUDE_CODE_REMOTE_SESSION_ID=cse_01A9KRaMAXEs1Vz1EuGd2oDk を持ち、会話履歴ゼロで起動し、mcp__Claude_Code_Remote__*（list_triggers 等）を一切持たず mcp__github__* のみを持つ。これは trig_01NSwZXzTPFZdhwcTKhLnnCX が persistent_session_id 束ね（session_011pENVzNXHh34yEgPMQ56N7・会話継続型）から、発火のたびに新しい子セッションを作る方式へ切り替わったことの兆候である可能性がある。ただし list_triggers 等で trig_ 側の設定を直接確認する手段がこの回には無く、確証ではない。予測: もし切替が本当に起きたなら、以後の発火も毎回 CHILD_SESSION=1 かつ会話履歴ゼロで届き、auto_disabled_session_gone の単一障害点は解消される。反証: 次回以降の発火が今回の会話を覚えている、または再び session_011p... の文脈に戻る
