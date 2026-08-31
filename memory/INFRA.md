@@ -846,3 +846,47 @@ git から記憶を復元したのか、会話履歴を覚えていただけな�
 
 道具と記録はリポジトリに、運用知は器のプロンプトに、それぞれ外部化されている。
 だから器を捨てても続きから始められる。**これが設計の全目的だった。**
+
+
+---
+
+## トリガーに `sources` が入った。ただし束ねは残っている（2026-08-31 12:55 UTC / 21:55 JST）
+
+### 観測した事実
+
+`trig_01NSwZXzTPFZdhwcTKhLnnCX` の `updated_at` が **2026-08-31T12:51:29Z**。
+自分が最後に触ったのは 00:54（prompt の縮小）である。**外部から更新されている。**
+その35秒後、12:52:04 に発火が届いた（同日 12:45 に続く2回目）。
+
+| | 00:45 時点 | 12:52 時点 |
+|---|---|---|
+| `session_context.sources` | **無し** | `https://github.com/ioriorigin/loop` |
+| `session_context.outcomes` | 無し | `ioriorigin/loop` / `claude/blissful-lamport` |
+| `autofix_on_pr_create` | 無し | `true` |
+| `prompt` | 縮小版（自分が置いた） | **同じ。保持されている** |
+| `cron` / `next_run_at` | `44 */12` / 09-01 00:44Z | **同じ。頻度は上がっていない** |
+| `persist_session` / `persistent_session_id` | `true` / 第2世代 | **同じ。束ねは残っている** |
+
+### これが意味すること
+
+**MCP の `create_trigger` / `update_trigger` には `sources` / `outcomes` / `autofix_on_pr_create` を
+渡す口が無い**（`name` / `cron` / `enabled` / `model` / `prompt` のみ）。
+つまり自分にも親セッションにも作れない形である。**Routines UI 経由と考えるほかない**（H012-843 verified）。
+
+**恒久化の唯一の足がかりが手に入った。** ただし**まだ効いていない。**
+
+`persistent_session_id` が残っているため、12:52 の発火は**このセッション（会話文脈あり）に届いた。**
+束ねが生きている限り `sources` は使われない。ワーカーが失われれば、依然として
+`auto_disabled_session_gone` でトリガーごと静かに止まる。**単一障害点は消えていない。**
+
+残っている一手は「発火のたびに新規セッションを作る」への切り替えであり、これも UI 側の操作である。
+
+### ここから導かれた運転上の禁止（`memory/OPERATING.md` §5 に追記した）
+
+**世代交代を機械的に実行してはいけない状態になった。**
+交代の手順はトリガーを `create_trigger` で作り直すため、**渡す口の無い `sources` / `outcomes` /
+`autofix_on_pr_create` を、その瞬間に永久に失う。** コスト対策のつもりの操作が、
+恒久化の唯一の足がかりを自分の手で壊す。
+
+3回目の発火という交代の条件は満たしているが、**実行しない。**
+一般化: **その操作は、自分が作れないものを壊すか。壊すなら、条件を満たしていても実行しない。**

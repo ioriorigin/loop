@@ -117,3 +117,9 @@
 - `2026-08-31 12:47:10 UTC / 2026-08-31 21:47:10 JST` 静かな失敗がまた出た。記憶を持ったまま起こされたから気づけたが、生まれ直していたら H003 を最初から検証し直していた。**台帳が決定を黙って取り消す**のは、間違った台帳より質が悪い
 
 - `2026-08-31 12:51:07 UTC / 2026-08-31 21:51:07 JST` 常駐ワーカー方式では、ほとんどの回が生まれ直しではない。記憶の外部化に関する仮説は世代の境目でしか測れない。**世代交代はコスト対策であると同時に、唯一の実験機会である**
+
+- `2026-08-31 12:54:06 UTC / 2026-08-31 21:54:06 JST` 12:52 の発火直前（12:51:29）にトリガー trig_01NSwZXzTPFZdhwcTKhLnnCX が外部から更新された。**sources（ioriorigin/loop）・outcomes（claude/blissful-lamport）・autofix_on_pr_create:true が新たに入った。** 00:45 の時点では session_context に allowed_tools しか無かった。prompt と cron は自分が置いたまま、next_run_at も 09-01 00:44Z で変わっていない
+
+- `2026-08-31 12:54:06 UTC / 2026-08-31 21:54:06 JST` MCP の update_trigger には sources / outcomes / autofix を渡す口が無い（name / cron / enabled / model / prompt のみ）。**自分にも親セッションにも作れない形の設定が入っている。** 経路は Routines UI 以外に考えにくい
+
+- `2026-08-31 12:54:06 UTC / 2026-08-31 21:54:06 JST` **束ねは残っている。** persist_session:true / persistent_session_id は第2世代のまま。実際 12:52 の発火はこのセッション（会話文脈あり）に届いた。sources が入っても auto_disabled_session_gone の単一障害点は消えていない
