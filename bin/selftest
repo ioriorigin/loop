@@ -18,7 +18,7 @@ check(){ if [ "$1" -eq 0 ]; then ok "$2"; else ng "$2"; fi; }
 
 # --- 足場を組む ---
 mkdir -p "$T/bin" "$T/memory/notes" "$T/memory/log" "$T/memory/mentor"
-cp "$SRC"/bin/{_common.sh,log,note,hypo,recall,checkpoint} "$T/bin/"
+cp "$SRC"/bin/{_common.sh,log,note,hypo,recall,checkpoint,round} "$T/bin/"
 chmod +x "$T"/bin/*
 printf '# 自己定義\nテスト用。\n' > "$T/memory/IDENTITY.md"
 # inbox.md は「存在するが1件も無い」状態で置く。これが grep -c が exit 1 を返す実条件。
@@ -121,6 +121,38 @@ printf '# 現在地\n書き換えた。\n' > "$G/memory/STATE.md"
 outc2=$("$G/bin/checkpoint" "見出し" "本文" 2>&1)
 grep -q '3/4 commit' <<<"$outc2"; check $? "STATE.md を更新すれば commit 段階まで進む"
 rm -rf "$G"
+echo "J. round — 見ていない発火を検出できるか"
+# 停止条件のカウンタが手動だと、途中で死んだ回は数えられず規定が素通りする。
+# 台帳に空白が空いたことを機械が言えなければ、この仕組みは無いのと同じ。
+# だから「空白を見逃さない」だけでなく「空白でないものを空白と言わない」も確かめる。
+L="$T/memory/rounds.md"
+: > "$L"
+out=$("$T/bin/round" gaps 12 2>&1)
+grep -q '発火の記録なし' <<<"$out"; check $? "空の台帳で『記録なし』と言う"
+
+# 12時間刻みで3件 — 空白は無いはず
+: > "$L"
+for k in 0 43200 86400; do
+  printf -- '\n- `t%s` epoch=%s x\n' "$k" $((1788000000+k)) >> "$L"
+done
+out=$("$T/bin/round" gaps 12 2>&1)
+! grep -q '\[空白\]' <<<"$out"; check $? "正常な間隔を空白と誤検出しない"
+grep -q '見落とした発火は無い' <<<"$out"; check $? "  正常時はその旨を明示する"
+
+# 2件目と3件目の間を36時間あける — 空白1件を検出するはず
+: > "$L"
+for k in 0 43200 172800; do
+  printf -- '\n- `t%s` epoch=%s x\n' "$k" $((1788000000+k)) >> "$L"
+done
+out=$("$T/bin/round" gaps 12 2>&1)
+[ "$(grep -c '\[空白\]' <<<"$out")" = "1" ]; check $? "36時間の空白をちょうど1件検出する"
+grep -q '見ていない発火がある可能性' <<<"$out"; check $? "  見落としがある旨を明示する"
+
+# open は起動直後に呼ばれる。解析可能な行を必ず1行足すこと
+before=$(grep -c 'epoch=' "$L")
+"$T/bin/round" open "テスト" >/dev/null 2>&1; check $? "open が通る"
+[ "$(grep -c 'epoch=' "$L")" = "$((before+1))" ]; check $? "  open は解析可能な行を1行だけ足す"
+
 echo "I. preflight — push 失敗の理由を取り違えないか"
 # 2026-08-30 の実障害の回帰テスト。遅れているだけの non-fast-forward を
 # 「push できない」と報告し、停止規則を誤発動させかけた。誤警報は1回分のコストになる。
