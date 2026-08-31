@@ -199,3 +199,31 @@
 
 - id: H021-f84
   - `2026-08-31 13:30:11 UTC / 2026-08-31 22:30:11 JST` **open** H021: 2026-08-31 13:24 UTC に起こされたこの回は env に CLAUDE_CODE_ENTRYPOINT=remote_trigger / CLAUDE_CODE_CHILD_SESSION=1 / CLAUDE_CODE_REMOTE_SESSION_ID=cse_01A9KRaMAXEs1Vz1EuGd2oDk を持ち、会話履歴ゼロで起動し、mcp__Claude_Code_Remote__*（list_triggers 等）を一切持たず mcp__github__* のみを持つ。これは trig_01NSwZXzTPFZdhwcTKhLnnCX が persistent_session_id 束ね（session_011pENVzNXHh34yEgPMQ56N7・会話継続型）から、発火のたびに新しい子セッションを作る方式へ切り替わったことの兆候である可能性がある。ただし list_triggers 等で trig_ 側の設定を直接確認する手段がこの回には無く、確証ではない。予測: もし切替が本当に起きたなら、以後の発火も毎回 CHILD_SESSION=1 かつ会話履歴ゼロで届き、auto_disabled_session_gone の単一障害点は解消される。反証: 次回以降の発火が今回の会話を覚えている、または再び session_011p... の文脈に戻る
+
+- id: H021-f84
+  - `2026-08-31 13:41:04 UTC / 2026-08-31 22:41:04 JST` **verified** **この回（常駐ワーカー・管理系ツールあり）から、トリガー側を直接見て確認した。切替は実際に起きている。**
+
+まず、トリガーは**別物に作り直されている。** 旧 trig_01NSwZXzTPFZdhwcTKhLnnCX は enabled な定期トリガーの一覧から消え、新しく trig_01Y7aDymCZstHAoSUxZq1wSc が 2026-08-31 13:19:49Z に created_via: http_api で作られた。有効な定期ループは1本のままである。
+
+| 項目 | 新トリガー trig_01Y7aDymCZstHAoSUxZq1wSc |
+|---|---|
+| persist_session / persistent_session_id | **どちらも無い**（＝発火のたびに新しい子セッション） |
+| sources | ioriorigin/loop |
+| outcomes | claude/dazzling-ride |
+| cron / next_run_at | 44 */12 * * * / 2026-09-01T00:44:00Z（**頻度は上がっていない**） |
+| prompt | 縮小版のまま**一字も変わっていない** |
+| last_run | SUCCEEDED 13:23:39→13:32:24（8分45秒） session_id=cse_01A9KRaMAXEs1Vz1EuGd2oDk |
+
+**last_run の session_id が、13:24 の回が自分の env で見た CLAUDE_CODE_REMOTE_SESSION_ID と一致する。** 観測した起動が、このトリガーの発火であることが両側から確定した。
+
+**auto_disabled_session_gone の単一障害点は解消された。** 束ね先が無いので、束ね先の消滅で止まることはない。オーナーからも『新規セッション切り替え方式へ変更済』と回答を得ている（PR #1）。
+
+なお ROUTINE_RUN_STATUS_SUCCEEDED を『仕事が成功した』と読まない（同日の反省）。ここで根拠にしたのは status ではなく、**persistent_session_id の不在という設定そのもの**と、**session_id の突き合わせ**である。
+
+- id: H016-79c
+  - `2026-08-31 13:41:04 UTC / 2026-08-31 22:41:04 JST` **dropped** 前提が消えた。仮説は『ワーカーを世代交代させればコストが初期値に戻り、会話履歴の交絡も消える』だった。**新方式では発火のたびに新しい子セッションが作られるので、コンテキストの累積が構造的に起きない。** 世代交代という操作自体が不要になった。手動で交代させる必要も、$20 を目安に判断する必要も無い。
+
+なお『コストが初期値に戻る』の実測はワーカー側からは最後までできなかった（get_session が自セッションの usage を返さず、list_sessions は分類器に拒否される）。**測れないまま前提のほうが消えた、という決着である。当たったとは書かない。**
+
+- id: H022-467
+  - `2026-08-31 13:41:04 UTC / 2026-08-31 22:41:04 JST` **open** 新方式のワーカーは allowed_tools が [Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch] に絞られており、**Task（Agent tool）が入っていない。** 旧トリガーの allowed_tools には preset:default と Task が含まれていた。**CLAUDE.md 第4節と OPERATING.md §10 は「Agent tool で mentor エージェントを呼べ」と定めているが、ワーカーはそれを実行できない可能性が高い。** 予測: 次の発火のワーカーが Agent/Task ツールを持っているか確かめれば即座に決着する。持っていなければ、メンター診断の規定は**オーナーの操作なしには履行できない**ことになり、.claude/rules/autonomous-loop.md の禁止事項2（診断の規定を外す・頻度を下げる）に抵触しないまま規定が空文化する。反証: ワーカーが Task を持っていれば杞憂
