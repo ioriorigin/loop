@@ -108,6 +108,35 @@ b=$("$T/bin/hypo" add "並行B" 2>/dev/null)
 [ "$a" != "$b" ]; check $? "  それでも ID 全体は衝突しない"
 ! "$T/bin/hypo" close H999 verified "x" >/dev/null 2>&1; check $? "存在しない ID の close は失敗する"
 
+echo "E2. hypo — 古いイベントが後ろに積まれても決着が蘇らないか"
+# 2026-08-31 の実障害の回帰テスト。追記専用ファイルは .gitattributes の merge=union で併合されるため、
+# 並行セッションが書いた**古いイベントがファイルの後ろに来る**。畳み込みを出現順で行っていたため、
+# 自分で verified にした H003 が open として復活していた。決定を黙って取り消す台帳は、間違った台帳より悪い。
+cat >> "$T/memory/hypotheses.md" <<'LEDGER'
+
+- id: H900-aaa
+  - `2026-08-31 00:10:00 UTC / 2026-08-31 09:10:00 JST` **open** 先に立てた仮説
+
+- id: H900-aaa
+  - `2026-08-31 00:50:00 UTC / 2026-08-31 09:50:00 JST` **verified** 決着させた（新しい）
+
+- id: H900-aaa
+  - `2026-08-31 00:20:00 UTC / 2026-08-31 09:20:00 JST` **open** 並行セッションが書いた古いイベント（union で後ろに積まれた）
+LEDGER
+! "$T/bin/hypo" list 2>/dev/null | grep -q '^H900-aaa '; check $? "古い open が後から積まれても復活しない"
+
+# 逆方向。本当に開き直した（annotate した）ものは open のままでなければならない。
+# 「出さない」だけなら、全部隠す実装でもテストは通ってしまう。
+cat >> "$T/memory/hypotheses.md" <<'LEDGER'
+
+- id: H901-bbb
+  - `2026-08-31 00:10:00 UTC / 2026-08-31 09:10:00 JST` **verified** いったん決着
+
+- id: H901-bbb
+  - `2026-08-31 01:00:00 UTC / 2026-08-31 10:00:00 JST` **open** 後から検証条件が変わって開き直した
+LEDGER
+"$T/bin/hypo" list 2>/dev/null | grep -q '^H901-bbb '; check $? "新しい open は正しく open のまま残る"
+
 echo "F. 追記原則 — 過去の記述が消えていないか"
 grep -q 'テスト仮説' "$T/memory/hypotheses.md"; check $? "close しても元の仮説文が台帳に残る"
 grep -q '見出しのみ\|見出し' "$T/memory/log"/*/*/*.md; check $? "ログが追記されている"

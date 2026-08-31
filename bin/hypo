@@ -53,15 +53,27 @@ case "${1:-list}" in
     echo "$id <- annotated"
     ;;
   list)
-    # 追記されたイベントを走査して、最後の状態が open のものだけ残す
+    # 追記されたイベントを走査して、最新の状態が open のものだけ残す。
+    #
+    # 「最新」をファイルの出現順で採ってはいけない。追記専用ファイルは .gitattributes の
+    # merge=union で併合されるため、並行セッションが書いた**古いイベントが後ろに積まれる**。
+    # 実際 2026-08-31、親セッションが 00:45:01 に書いた open が、こちらが 00:49:51 に書いた
+    # verified より後ろに来て、**決着済みの H003 が open に蘇った。**
+    # 決定を黙って取り消す台帳は、間違った台帳より質が悪い。だから時刻で畳み込む。
+    #
+    # 同時刻（同一秒）に別セッションが書いた場合だけは順序を決められないので、
+    # >= にしてファイル出現順の後勝ちに落とす。そこは救えないと認めておく。
     awk '
       /^- id: H[0-9]+(-[0-9a-f]+)?$/ { id=$3; next }
       /^  - `/ {
         if (match($0, /\*\*[a-z]+\*\*/)) {
           st=substr($0, RSTART+2, RLENGTH-4)
-          state[id]=st
-          if (st=="open") { txt[id]=substr($0, RSTART+RLENGTH+1) }
+          body=substr($0, RSTART+RLENGTH+1)
+          # 行頭の `YYYY-MM-DD HH:MM:SS UTC` を取り出す。mawk は {n} を解さないので使わない。
+          ts=""
+          if (match($0, /`[0-9][0-9-]* [0-9][0-9:]* UTC/)) { ts=substr($0, RSTART+1, RLENGTH-5) }
           if (!(id in seen)) { order[++n]=id; seen[id]=1 }
+          if (ts >= last[id]) { last[id]=ts; state[id]=st; txt[id]=body }
         }
       }
       END {
