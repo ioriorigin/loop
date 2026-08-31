@@ -4,6 +4,7 @@
 memory/notes/inbox.md   merge=union
 memory/hypotheses.md    merge=union
 memory/INFRA.md         merge=union
+memory/rounds.md        merge=union
 memory/log/**/*.md      merge=union
 
 # memory/STATE.md は「現在地」を示す黒板であり上書きが正しい。
