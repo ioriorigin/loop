@@ -25,6 +25,10 @@ printf '# 自己定義\nテスト用。\n' > "$T/memory/IDENTITY.md"
 # ファイル自体が無いと recall は grep に到達せず、バグを踏まないままテストが通ってしまう。
 printf '# 気づきの受け皿\n\n' > "$T/memory/notes/inbox.md"
 printf '# 現在地\nテスト用。\n'   > "$T/memory/STATE.md"
+# OPERATING.md も同型の切り落としを起こしうる。ここは起動・push 復旧・停止条件の手順が入る場所で、
+# 末尾ほど「困ったときに読む」内容になる。前半だけ出す実装は、困っている自分にだけ届かない。
+{ printf '# 運転手順\n'; for i in $(seq 1 60); do printf 'padding %s\n' "$i"; done
+  printf '## メンター診断\nOPERATING_TAIL_MUST_SURVIVE\n'; } > "$T/memory/OPERATING.md"
 # INFRA.md は「深い位置に置いた印が recall の出力に出るか」で切り落としを検出する
 { printf '# 稼働インフラ\n'; for i in $(seq 1 60); do printf 'padding %s\n' "$i"; done
   printf '### 既知の制約（重要）\nDEEP_MARKER_MUST_SURVIVE\n'; } > "$T/memory/INFRA.md"
@@ -47,6 +51,20 @@ grep -q '呼び戻し完了' <<<"$out"; check $? "最後まで到達する"
 
 echo "B. recall — INFRA.md の末尾が切り落とされないか"
 grep -q 'DEEP_MARKER_MUST_SURVIVE' <<<"$out"; check $? "INFRA.md の深い位置の記述が生き残る"
+
+echo "B1. recall — 運転手順が出力され、末尾まで切り落とされないか"
+# 運転手順は 2026-08-31 まで git の外（トリガーのプロンプト）にしか無かった。
+# 経路に載せた以上、載り続けることをテストで担保する。
+grep -q '運転手順 (memory/OPERATING.md)' <<<"$out"; check $? "運転手順の節が出力される"
+grep -q 'OPERATING_TAIL_MUST_SURVIVE' <<<"$out"; check $? "運転手順の末尾が生き残る"
+
+echo "B1b. recall — 運転手順が欠けたら黙らずに警告するか"
+# 無いのに黙って通ると、手順が消えたことに誰も気づかない。静かな失敗を作らない。
+mv "$T/memory/OPERATING.md" "$T/memory/OPERATING.md.bak"
+out_no=$("$T/bin/recall" 2>&1); check $? "  欠けていても exit 0 で最後まで走る"
+grep -q '運転手順が無い' <<<"$out_no"; check $? "  欠けていることを明示的に警告する"
+grep -q '呼び戻し完了' <<<"$out_no"; check $? "  警告しても後続の節は止まらない"
+mv "$T/memory/OPERATING.md.bak" "$T/memory/OPERATING.md"
 
 echo "B2. recall — メンター診断の末尾が切り落とされないか"
 # 診断は後半ほど重い（盲点・次にやるべきこと）。前半だけ出す実装は最悪の壊れ方をする。

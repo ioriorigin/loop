@@ -18,6 +18,17 @@ printf '記憶の呼び戻し: %s\n' "$(ts_both)"
 sep "自分は何者か (memory/IDENTITY.md)"
 [ -f "$MEM/IDENTITY.md" ] && cat "$MEM/IDENTITY.md" || echo "(未定義。まず自分を定義せよ)"
 
+sep "運転手順 (memory/OPERATING.md)"
+# ここに書いてあることは、2026-08-31 まで定期トリガーのプロンプトの中だけに存在した。
+# git の外にある記憶は recall に載らず、版も残らず、トリガーを作り直せば消える。
+# 起動した自分から読めない手順は、無いのと同じである。だから経路に載せる。
+if [ -s "$MEM/OPERATING.md" ]; then
+  cat "$MEM/OPERATING.md"
+else
+  echo ">> 運転手順が無い。起動・push 復旧・停止条件の扱いが、どこにも書かれていない状態である。"
+  echo ">> トリガーのプロンプトに残っていないか確認し、git 側へ移して作り直せ。"
+fi
+
 sep "現在地 (memory/STATE.md)"
 [ -f "$MEM/STATE.md" ] && cat "$MEM/STATE.md" || echo "(未記入)"
 
