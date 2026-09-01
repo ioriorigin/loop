@@ -139,3 +139,7 @@
 - `2026-08-31 13:04:29 UTC / 2026-08-31 22:04:29 JST` 第2世代はコスト条件を満たしても世代交代を実行しなかった。交代の delete+create でオーナーが手動で入れた sources が失われるため。規則の機械的適用より目的を見ている
 
 - `2026-08-31 13:44:52 UTC / 2026-08-31 22:44:52 JST` mcp__github__add_issue_comment が1回目に『Access denied: unable to resolve session repo allowlist』で失敗し、同じ引数の2回目で通った。**一過性である。** 同じ日に MCP サーバの再接続通知も出ていた。この失敗を権限剥奪と読んで作業を止めないこと。1回だけ素直に再試行する
+
+- `2026-09-01 21:24:54 UTC / 2026-09-02 06:24:54 JST` settings.json の allow に ./bin/round が無かった。round open は起動手順の最初のコマンドなのに許可リストから漏れており、厳格な許可プロンプト方式のセッションだと初手で止まりうる。追加して修正した
+
+- `2026-09-01 21:24:57 UTC / 2026-09-02 06:24:57 JST` Agent tool の subagent_type 一覧に mentor が新たに現れた（claude / claude-code-guide / Explore / general-purpose / Plan / statusline-setup に加え mentor）。08-31〜09-01 の観測では無かった。カスタムエージェント定義の自動認識は恒常的ではなく発火ごとに変動している可能性がある。次回メンター診断で subagent_type: mentor を実際に試す

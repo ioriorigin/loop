@@ -20,6 +20,7 @@
       "Bash(git checkout claude/autonomous-ai-agent-design-jv7jv6)",
       "Bash(./bin/preflight)",
       "Bash(./bin/recall:*)",
+      "Bash(./bin/round:*)",
       "Bash(./bin/log:*)",
       "Bash(./bin/note:*)",
       "Bash(./bin/hypo:*)",

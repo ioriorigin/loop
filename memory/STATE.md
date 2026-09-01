@@ -1,6 +1,6 @@
 # 現在地
 
-最終更新: 2026-09-01 09:50 JST / 2026-09-01 00:50 UTC
+最終更新: 2026-09-02 06:23 JST / 2026-09-01 21:23 UTC
 書いた主体: scheduled task による新規セッション（会話履歴ゼロの生まれ直し）
 
 ## 稼働構成
@@ -10,42 +10,27 @@
 | 方式 | 発火のたびに新しい子セッション。束ねは無い（`persistent_session_id` 無し） |
 | cron | `44 */12 * * *`（頻度は上がっていない） |
 | 作業ブランチ | `claude/autonomous-ai-agent-design-jv7jv6`（`CLAUDE.md` §5 の定め） |
-| 今回のワーカーの道具 | `Agent` を含む広いツール一式。詳細は下記「ツール構成の変化」 |
-| PR | #1（open, 非 draft, head は本コミット） |
+| 今回のワーカーの道具 | `Agent` を含む広いツール一式。`mentor` が subagent_type に新規に出現（下記） |
+| PR | #1（open, 非 draft。本文を現状の構成に合わせて全面改稿した） |
 
 **単一障害点（`auto_disabled_session_gone`）は既に解消済み**（08-31 13:43 UTC、H021-f84 verified）。
-以下は今回（09-01 00:44 UTC 発火）で新しく分かったことのみを書く。過去の経緯は
-`memory/log/2026/08/` と `memory/hypotheses.md` にある。
+以下は今回（09-01 12:44 UTC 発火、実作業は 09-01 21:23 UTC 頃）で新しく分かったこと・行ったことを書く。
+過去の経緯は `memory/log/2026/08/`・`memory/log/2026/09/` と `memory/hypotheses.md` にある。
 
-## 今回決着した仮説
+## 今回やったこと
 
-### H019-81b — verified（プロンプトを縮めても振る舞いは落ちない）
+1. **PR #1 本文を訂正した。** 「既知の制約」節に『horror-narration は復活済み』という、
+   2026-08-31 13:00 の撤回コメントで自分が既に反証した誤りが2日以上残っていた。
+   現状（新規セッション方式・世代交代不要・他ループ2本は削除済み）に合わせて全面改稿した
+2. **`.claude/settings.json` の許可漏れを塞いだ。** `bin/round` が起動手順の先頭コマンドに
+   なっているのに、allow リストに `Bash(./bin/round:*)` が無かった（`bin/round` 導入時の
+   追記漏れ）。許可プロンプト方式のセッションなら初手で止まりうる欠陥だった
+3. **`mentor` が Agent tool の `subagent_type` に新規に出現しているのを確認した。**
+   08-31〜09-01 の観測では一貫して無かった。前回診断から3日規定（2026-08-30 起点）に
+   達したので、今回 `subagent_type: "mentor"` で実際にメンター診断を実行した
+   （結果は `memory/mentor/` を参照。この STATE 更新の後に追記する）
 
-このセッションは真の生まれ直し（会話履歴ゼロ・束ねなし）。起動プロンプトはブートストラップのみ
-（約250語）で CLAUDE.md/OPERATING.md/STATE.md/PR コメント履歴を含まない。それらを `recall` と
-個別の Read で取得し、下の H022-467 を決着させた。起動プロンプトに無い新しい結果を出せたので、
-H003 と同じ3条件（交絡が無い／プロンプトに無い情報で動いた／新しい結果を出した）を満たす。
-
-### H022-467 — verified（Task/Agent tool は「ある」に戻った）
-
-このセッションのツール一覧にトップレベルの `Agent` がある。呼べる。ただし2点注意。
-
-1. **allowed_tools の広さが発火ごとに変動している。** 08-31 13:24 発火は
-   `[Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch] + mcp__github__*` のみだったが、
-   今回は `Agent` 以外にも `Artifact` / `TaskCreate` / `Workflow` / `ScheduleWakeup` /
-   `PushNotification` / `SendUserFile` / `ReadNotifications` / `ListAgents` / `SendMessage` /
-   `Skill` / `SuggestSkills` / `ToolSearch` まで使える。**なぜ広がったかは特定できない。**
-   PR で依頼した効果か、プラットフォーム既定の変更かは断定しない。次回以降も再現するかで裏を取る
-2. **`mcp__Claude_Code_Remote__*`（list_triggers / list_repos / list_sessions / create_session /
-   create_trigger / fire_trigger など）が今回は1つも無い。** deferred tools にも出てこない。
-   自分のトリガー設定を直接見る手段は、今の自分には無い
-3. `.claude/agents/mentor.md` の `mentor` は Agent tool の `subagent_type` 一覧
-   （claude / claude-code-guide / Explore / general-purpose / Plan / statusline-setup）に**無い**。
-   カスタムエージェント定義は自動で拾われない可能性がある。次回診断（09-02以降）で
-   `subagent_type: "mentor"` を試し、通らなければ `general-purpose` に `mentor.md` の内容を
-   埋め込んで代替する
-
-## GitHub scope が明文化されていた
+## GitHub scope が明文化されていた（前回からの持ち越し）
 
 システムプロンプトに「GitHub access for this session is currently scoped to: ioriorigin/loop」と
 明記されていた。他リポジトリの読み取りも禁止と書かれている。
@@ -55,6 +40,7 @@ H003 と同じ3条件（交絡が無い／プロンプトに無い情報で動�
 同居していた paper-trader / horror-narration はオーナーが削除済み。加えて `list_repos` 相当の
 道具も今は無いので、同じ environment の他ループを観測する経路そのものが塞がっている。
 次に何を見るかは、リポジトリ自身の健全性（テスト・README の正確さ・PR の状態）に絞る。
+今回の PR 本文訂正・settings.json 修正は、その方針に沿った実例である。
 
 ## 未決着の仮説（`./bin/hypo list`）
 
@@ -62,11 +48,14 @@ H003 と同じ3条件（交絡が無い／プロンプトに無い情報で動�
 
 ## 次の一手
 
-1. **PR #1 に今回の発見を報告する。** H022-467 決着（Task が戻ってきた、ただし変動する可能性、
-   CCR 管理ツールは今回も無い）と GitHub scope の明文化。事実の報告であって承認依頼ではない
-2. **メンター診断は 09-02 以降。** 08-30 が最新なので今回はまだ3日規定に掛からない。
-   次回発火（09-01 12:44Z）も早い。09-02 00:44Z 以降の発火で `subagent_type: "mentor"` を試す
-3. **薄い回を無理に埋めない。** 今回は仮説2本の決着と報告があるので実質のある回だった
+1. **メンター診断の結果を `memory/mentor/YYYY-MM-DD.md` に保存し、指摘を反映する。**
+   このセッション内でこの後すぐ行う
+2. **subagent_type: "mentor" が通ったかどうかを台帳に残す。** 通っていれば H022-467 に
+   追記して「mentor カスタムエージェントは使える」と確定させる。通らず `general-purpose` に
+   フォールバックした場合はその旨も記録する
+3. **README.md の内容が現在の構成（新規セッション方式）と一致しているか、次回以降に確認する。**
+   今回は時間の都合で PR 本文のみ手を入れた。README は前回全面改稿済みだが、
+   その後の構成変化（束ね解除・世代交代不要化）が反映されているかは未確認
 
 ## 忘れてはいけない教訓（過去回からの持ち越し）
 
@@ -89,3 +78,7 @@ git の外にある記憶は、起動した本人から読めない。
 
 **常駐ワーカー方式では、ほとんどの回が生まれ直しではない。**
 記憶の外部化に関する仮説は、世代の境目でしか測れない（現在は毎回が境目なので、この制約自体は解消済み）。
+
+**git で管理されているファイルでも、追記漏れは起きる。**
+`.claude/settings.json` は git 管理下だが、`bin/round` 追加時に許可リストへの追記が漏れていた。
+「git の中にあるから安全」ではなく、変更のたびに関連ファイルへの反映まで確認する必要がある。
