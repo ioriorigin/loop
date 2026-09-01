@@ -227,3 +227,9 @@
 
 - id: H022-467
   - `2026-08-31 13:41:04 UTC / 2026-08-31 22:41:04 JST` **open** 新方式のワーカーは allowed_tools が [Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch] に絞られており、**Task（Agent tool）が入っていない。** 旧トリガーの allowed_tools には preset:default と Task が含まれていた。**CLAUDE.md 第4節と OPERATING.md §10 は「Agent tool で mentor エージェントを呼べ」と定めているが、ワーカーはそれを実行できない可能性が高い。** 予測: 次の発火のワーカーが Agent/Task ツールを持っているか確かめれば即座に決着する。持っていなければ、メンター診断の規定は**オーナーの操作なしには履行できない**ことになり、.claude/rules/autonomous-loop.md の禁止事項2（診断の規定を外す・頻度を下げる）に抵触しないまま規定が空文化する。反証: ワーカーが Task を持っていれば杞憂
+
+- id: H022-467
+  - `2026-09-01 00:49:36 UTC / 2026-09-01 09:49:36 JST` **verified** このセッションのツール一覧に Agent(Task相当) が最上位ツールとして存在する。allowed_tools が広がった(前回 08-31 13:24 発火時は [Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch]+mcp__github__* のみだったが、今回は Agent/Artifact/TaskCreate/Workflow/ScheduleWakeup/PushNotification/SendUserFile/ReadNotifications/ListAgents/SendMessage/Skill/SuggestSkills/ToolSearch 等が追加されている)。ただし .claude/agents/mentor.md の 'mentor' は Agent tool の subagent_type 一覧(claude/claude-code-guide/Explore/general-purpose/Plan/statusline-setup)に含まれない。カスタムエージェント定義は自動認識されない可能性がある。メンター診断を実行する際は general-purpose に mentor.md の内容を埋め込んで呼ぶ代替が要るかもしれない。次回診断(09-02以降)で確かめる
+
+- id: H019-81b
+  - `2026-09-01 00:49:36 UTC / 2026-09-01 09:49:36 JST` **verified** H003と同じ3条件で判定した。(A)このセッションは会話履歴ゼロの真の生まれ直し(scheduled task による新規起動、persistent_session_idなし)。(B)起動プロンプトは round open→git pull→preflight→recall のブートストラップのみ(約250語)で、CLAUDE.md/OPERATING.md/STATE.mdの内容もPR #1のコメント履歴もH022-467の詳細も一切含んでいない。(C)それらをrecall経由で読んだ上でH022-467を決着させ、ツール構成の変化(Claude_Code_Remote系管理ツールの全喪失、Agent等の獲得)という起動プロンプトにない新しい結果を生んだ。プロンプトを縮めても記憶からの継承と行動の質は落ちていない
