@@ -35,10 +35,27 @@ logfile() {
 # 作業をせず原因究明だけに充てる」が誤発動し、1回分を丸ごと潰す。
 # 2026-08-30 12:24 UTC に実際に発生した。誤警報はコストである。
 # preflight から切り出してあるのは、テストできる形にするため（bin/selftest H 節）。
+#
+# 2026-09-02 追記: 3つ目の分類 noref を足した。
+# コンテナが作り直され、`main`（README.md 1本だけ）の浅いクローンで起動した回が実在する。
+# ローカルに作業ブランチの ref が無いので、push は**リモートに触れる前に**ローカルで落ちる。
+#   error: src refspec claude/... does not match any
+# これは良性である。だが分類が2つしか無かったため unknown に落ち、
+# preflight は「push できない（原因不明）。**今すぐ原因を潰せ。**」と報告した。
+# stale を unknown に落として1回を潰した 2026-08-30 の欠陥と、**同じ型が3つ目の理由で再発した。**
+# 分類の穴は「知らない理由が来たとき最悪側に倒れる」形で必ず出る。
 push_err_kind() {
   local msg="${1:-}"
   if printf '%s' "$msg" | grep -qiE 'non-fast-forward|fetch first|behind its remote'; then
     echo stale
+  elif printf '%s' "$msg" | grep -qiE 'src refspec .* does not match any'; then
+    # ここは**ローカル ref の不在に限る。** 「remote が無い」（does not appear to be a
+    # git repository）を巻き込みたくなるが、あれは良性ではない。良性側の分類を広げると、
+    # 本物の異常が「ブランチを作れば直る」と読まれて素通りする。分類は狭いほうへ倒す。
+    # ローカルに ref が無い。git はリモートへ接続する前に落ちるので、
+    # **認証が生きているかどうかは、この失敗からは何も分からない。**
+    # stale（認証は生きていると言える）と混同しないこと。ブランチを作ってから測り直す。
+    echo noref
   elif printf '%s' "$msg" | grep -qiE 'authentication|permission denied|403|could not read username|repository not found|access denied|support for password authentication'; then
     echo auth
   else

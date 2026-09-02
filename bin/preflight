@@ -34,6 +34,10 @@ else
   case "$(push_err_kind "$push_err")" in
     stale)
       bad "非 fast-forward で弾かれた。**認証は生きている。** pull / merge してから押せ（2 を見よ）" ;;
+    noref)
+      # コンテナが main の浅いクローンで作り直された回に出る。良性だが、
+      # **認証が生きている証拠にはならない**（リモートに触れる前に落ちている）。
+      bad "ローカルに $BRANCH が無いだけ（良性）。認証は**まだ測れていない。** git checkout -B $BRANCH origin/$BRANCH してから preflight をやり直せ" ;;
     auth)
       bad "push できない（認証・権限）。**今すぐ原因を潰せ。** これを放置すると今回の記憶は失われる" ;;
     *)

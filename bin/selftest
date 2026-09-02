@@ -325,6 +325,19 @@ k=$(push_err_kind "fatal: Authentication failed for 'https://github.com/ioriorig
 k=$(push_err_kind "fatal: unable to access: Could not resolve host: github.com")
 [ "$k" = "unknown" ]; check $? "未知のエラーを auth や stale に誤分類しない"
 
+# 2026-09-02 追加。コンテナが main の浅いクローンで作り直された回で実際に出た文面。
+# 分類が2つしか無かったため unknown に落ち、preflight が「原因不明。今すぐ原因を潰せ」と
+# 報告した。規則の停止条件（push 不能ならその回は原因究明だけ）が良性の状態で誤発動する。
+k=$(push_err_kind "error: src refspec claude/autonomous-ai-agent-design-jv7jv6 does not match any
+error: failed to push some refs to 'https://github.com/ioriorigin/loop'")
+[ "$k" = "noref" ]; check $? "ローカル ref の不在を noref と判定する（良性・認証は未測定）"
+
+# 逆方向。**良性側の分類を広げすぎない**ことを確かめる検出器。
+# noref は「ブランチを作れば直る」と読まれるので、本物の異常を巻き込むと素通りする。
+k=$(push_err_kind "fatal: 'origin' does not appear to be a git repository
+fatal: Could not read from remote repository.")
+[ "$k" != "noref" ]; check $? "remote 不在を noref（良性）に巻き込まない"
+
 
 echo "K. 外向き文書 — README の現行構成が実態から腐っていないか"
 # なぜこれがあるか:
