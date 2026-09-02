@@ -32,3 +32,4 @@
   close `2026-09-02 06:41:57 UTC / 2026-09-02 15:41:57 JST` elapsed=2.3h mark=+ for=1788311619 外向き: README全面改稿とPR報告 / 決着: 目的1の前提と金額前提の2件 / 欠陥修正: selftestのerrexit漏れ・round closeのpipefail即死・READMEの虚偽記述（訂正の再掲。01:13 の回の本来の締めである）
 
 - `2026-09-02 12:45:19 UTC / 2026-09-02 21:45:19 JST` epoch=1788353119 定期発火
+  close `2026-09-02 13:05:23 UTC / 2026-09-02 22:05:23 JST` elapsed=0.3h mark=+ for=1788353119 外向き: PR #1 へ報告・README に起動の入口を追加（public なので外から読める）/ 欠陥修正: preflight の分類漏れによる誤警報・BOOTSTRAP.md の README 漏れ・OPERATING の起動手順の前提未明文化 / 判断: 目的2の取り下げ
