@@ -205,6 +205,38 @@ grep -q '見ていない発火がある可能性' <<<"$out"; check $? "  見落�
 before=$(grep -c 'epoch=' "$L")
 "$T/bin/round" open "テスト" >/dev/null 2>&1; check $? "open が通る"
 [ "$(grep -c 'epoch=' "$L")" = "$((before+1))" ]; check $? "  open は解析可能な行を1行だけ足す"
+# 橋頭堡 push は起動手順の1行目に埋まっている。**ここで止まる実装は、その回を丸ごと殺す。**
+# git の無い場所でも、押せない場所でも、落ちずに理由を言って進むこと。
+outo=$("$T/bin/round" open "git外" 2>&1); check $? "  git 管理外でも open は落ちない"
+grep -q '橋頭堡 push は省略' <<<"$outo"; check $? "  押さなかった理由を黙らずに言う"
+
+echo "J1b. round open — 橋頭堡 push が台帳行だけを外に固定するか"
+# 第3回診断「次にやるべきこと1」。台帳行の永続化が、その回の最後の push に依存していた。
+# 8時間41分 commit ゼロで走った回があり、回収されていれば丸ごと消えていた。
+R="$(mktemp -d)"; B="$(mktemp -d)"
+mkdir -p "$R/bin" "$R/memory"
+cp "$SRC"/bin/{_common.sh,round} "$R/bin/"; chmod +x "$R"/bin/*
+git init -q --bare "$B/remote.git"
+git -C "$R" init -q -b claude/autonomous-ai-agent-design-jv7jv6
+git -C "$R" remote add origin "$B/remote.git"
+printf '# 台帳\n' > "$R/memory/rounds.md"
+printf 'x\n' > "$R/other.txt"      # 台帳以外の未コミット変更。巻き込んではいけない
+git -C "$R" add memory/rounds.md >/dev/null 2>&1
+git -C "$R" -c user.name=t -c user.email=t@t commit -qm init >/dev/null 2>&1
+"$R/bin/round" open "橋頭堡テスト" >/dev/null 2>&1
+[ "$(git -C "$R" rev-list --count HEAD)" = "2" ]; check $? "open が台帳行を commit する"
+git -C "$R" ls-remote origin 2>/dev/null | grep -q autonomous-ai-agent-design
+check $? "  作業ブランチへ push されている（次の自分が読める場所に残る）"
+git -C "$R" show --stat --name-only HEAD | grep -q 'other.txt'
+[ $? -ne 0 ]; check $? "  台帳以外の変更を巻き込まない"
+# ハーネスが別ブランチを割り当てて起動する回が実在する。そこへ押すと round gaps が読む場所から外れる。
+git -C "$R" checkout -q -b claude/harness-assigned
+printf 'y\n' >> "$R/memory/rounds.md"
+outb=$("$R/bin/round" open "別ブランチ" 2>&1)
+grep -q 'push しない' <<<"$outb"; check $? "  作業ブランチ以外では push せず、そう言う"
+[ "$(git -C "$R" ls-remote origin 2>/dev/null | grep -c harness-assigned)" = "0" ]
+check $? "  見えない場所にブランチを作らない"
+rm -rf "$R" "$B"
 
 # close — 回の内側を測る。open だけの台帳は「回と回の間」しか見ていなかった（第3回診断の盲点1）
 : > "$L"

@@ -5,6 +5,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MEM="$ROOT/memory"
 
+# 記憶を置くブランチ（CLAUDE.md §5）。**押す先を各スクリプトに書き写さない。**
+# ハーネスが別のブランチを割り当てて起動する回が実在する（2026-09-02 の対話回）。
+# そこへ押した記録は `round gaps` が読む場所から外れ、次の自分から見えなくなる。
+# 押してよい唯一の場所を1か所に持つ。
+WORK_BRANCH="claude/autonomous-ai-agent-design-jv7jv6"
+
 ts_utc()  { date -u "+%Y-%m-%d %H:%M:%S UTC"; }
 ts_jst()  { TZ=Asia/Tokyo date "+%Y-%m-%d %H:%M:%S JST"; }
 ts_both() { echo "$(ts_utc) / $(ts_jst)"; }

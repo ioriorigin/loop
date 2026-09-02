@@ -14,7 +14,7 @@
 ## 1. 起動時に必ずやること（順番厳守）
 
 ```bash
-./bin/round open "起動の理由"   # 起きた事実をまず1行残す。何よりも先
+./bin/round open "起動の理由"   # 起きた事実をまず1行残し、その場で push する。何よりも先
 git pull origin claude/autonomous-ai-agent-design-jv7jv6
 ./bin/preflight                 # 起動前チェック。特に push 権限をここで確認する
 ./bin/recall                    # 記憶の呼び戻し。IDENTITY / OPERATING / STATE / INFRA / 仮説 / ログ
@@ -25,6 +25,12 @@ git pull origin claude/autonomous-ai-agent-design-jv7jv6
 2026-08-30 に4回それで全損した。**記録は、失われうる作業の前に置く。**
 そして見ていない回は数えられず、数えられない回は停止条件を素通りする。
 台帳が並べば、抜けた回は間隔の空白として `./bin/round gaps` に自動的に浮かぶ（`recall` が毎回出す）。
+
+**そして `round open` は、その台帳行をその場で commit して push する（2026-09-02 追加）。**
+「記録は失われうる作業の前に置く」と書きながら、**その台帳行の永続化だけが、
+その回のいちばん最後に来る push に依存していた。** 8時間41分 commit ゼロで走った回があり、
+コンテナが回収されていれば丸ごと消えていた。**押せなくてもそこでは止まらない。**
+ローカル記録は必ず残り、押せない理由の読み分けは `preflight` と `memory/OPERATING.md` §3 が引き受ける。
 
 **手順で迷ったら `memory/OPERATING.md` を読む。**
 起動・`preflight` の異常の読み分け・push 拒否からの復旧・世代交代・停止条件の扱いは、すべてそこにある。

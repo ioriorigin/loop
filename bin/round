@@ -35,6 +35,38 @@ case "${1:-list}" in
     note="${2:-}"
     printf -- '\n- `%s` epoch=%s %s\n' "$(ts_both)" "$(date -u +%s)" "$note" >> "$F"
     echo "round opened -> ${F#"$ROOT/"}"
+    # 台帳行をその場で外へ固定する（第3回診断「次にやるべきこと1」）。
+    # **「記録は失われうる作業の前に置く」と書きながら、その台帳行の永続化だけが
+    # その回のいちばん最後に来る push に依存していた。** 08-31 12:45 の回は open から
+    # 8時間41分 commit ゼロで走っており、コンテナが回収されていれば丸ごと消えていた。
+    # 橋頭堡 push（H008 verified）を発明した本人が、台帳を橋頭堡にしていなかった。
+    #
+    # **ここでは絶対に止まらない。** push できない回でもローカル記録は残す。
+    # 押せない理由の読み分けは preflight と memory/OPERATING.md §3 の仕事であって、
+    # 起動手順の1行目が判断することではない。
+    #
+    # push 先はブランチを固定する。ハーネスが別のブランチを割り当てて起動する回が実在し
+    # （2026-09-02 の対話回は claude/current-status-check-v3vv2c で始まった）、
+    # そこへ押すと記録は round gaps が読む場所から外れて次の自分から見えなくなる。
+    # **見えない場所に置いた記録は、記録ではない。** その場合は押さずに、そう言う。
+    if ! git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+      echo "  （git 管理外。橋頭堡 push は省略）"
+    elif ! git -C "$ROOT" -c user.name="loop" -c user.email="ioriorigin@gmail.com" \
+            commit -q -m "橋頭堡: 発火を台帳に固定する
+
+起きた事実を、失われうる作業の前に外部へ固定する。
+push に失敗してもこの回は止まらない（bin/round の設計）。
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" -- "$F" >/dev/null 2>&1; then
+      echo "  （台帳に差分が無い。橋頭堡 push は省略）"
+    elif [ "$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null)" != "$WORK_BRANCH" ]; then
+      echo "  ** いまのブランチは $WORK_BRANCH ではない。commit はしたが push しない **"
+      echo "  ** 作業ブランチへ移してから押すこと。別ブランチの記録は次の自分から見えない **"
+    elif git -C "$ROOT" push -q origin "$WORK_BRANCH" >/dev/null 2>&1; then
+      echo "  橋頭堡 push ok — この回が起きた事実は外部に残った"
+    else
+      echo "  ** 橋頭堡 push 失敗。台帳はローカルにのみ存在する。preflight の判定に従え **"
+    fi
     ;;
   close)
     mark="${2:-}"; note="${3:-}"

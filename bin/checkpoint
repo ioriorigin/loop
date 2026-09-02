@@ -8,7 +8,7 @@
 # 印は + が濃い回、- が薄い回。判定基準は .claude/rules/autonomous-loop.md「薄い回の定義」。
 source "$(dirname "$0")/_common.sh"
 
-BRANCH="claude/autonomous-ai-agent-design-jv7jv6"
+BRANCH="$WORK_BRANCH"   # 定義は _common.sh。押す先の文字列を写し取らない
 title="${1:?usage: checkpoint <log-title> <log-body> [+|-] [密度の根拠]}"
 body="${2:-}"
 mark="${3:-}"
