@@ -166,7 +166,9 @@ grep -q '1文字も変わっていない' <<<"$outc"; check $? "  STATE ゲー�
 # STATE.md を書き換えれば、少なくとも STATE ゲートは通過する
 printf '# 現在地\n書き換えた。\n' > "$G/memory/STATE.md"
 outc2=$("$G/bin/checkpoint" "見出し" "本文" 2>&1)
-grep -q '3/4 commit' <<<"$outc2"; check $? "STATE.md を更新すれば commit 段階まで進む"
+# 段階番号（3/4 など）で照合すると、工程を1つ足すだけでテストが割れる。実際 2026-09-02 に
+# round close を足して割れた。見たいのは「commit 段階に到達すること」であって番号ではない。
+grep -qE '── [0-9]+/[0-9]+ commit' <<<"$outc2"; check $? "STATE.md を更新すれば commit 段階まで進む"
 rm -rf "$G"
 echo "J. round — 見ていない発火を検出できるか"
 # 停止条件のカウンタが手動だと、途中で死んだ回は数えられず規定が素通りする。
@@ -204,6 +206,12 @@ echo "I. preflight — push 失敗の理由を取り違えないか"
 # 2026-08-30 の実障害の回帰テスト。遅れているだけの non-fast-forward を
 # 「push できない」と報告し、停止規則を誤発動させかけた。誤警報は1回分のコストになる。
 source "$SRC/bin/_common.sh"
+# _common.sh は `set -euo pipefail` を宣言している。source するとこのテストスクリプト自身に
+# errexit が伝染し、**以降「失敗することを確かめるテスト」が最初の1件でスクリプトごと即死する。**
+# しかも死ぬのは結果行を出す前なので、出力は「途中で切れた」ではなく「普通に失敗した」ように見える。
+# 2026-09-02、実際に J 節を足した瞬間にこれを踏んだ。テストの土台が黙って壊れる型そのものである。
+# selftest は失敗を検査する道具なので、errexit は明示的に外しておく。
+set +e
 k=$(push_err_kind " ! [rejected]  branch -> branch (non-fast-forward)
 error: failed to push some refs to 'https://github.com/ioriorigin/loop'
 hint: Updates were rejected because the tip of your current branch is behind")
@@ -216,6 +224,50 @@ k=$(push_err_kind "fatal: Authentication failed for 'https://github.com/ioriorig
 k=$(push_err_kind "fatal: unable to access: Could not resolve host: github.com")
 [ "$k" = "unknown" ]; check $? "未知のエラーを auth や stale に誤分類しない"
 
+
+echo "J. round close / times — 回の内側の長さを測れるか。そして gaps を壊していないか"
+# 2026-09-02 の第3回診断の盲点1。gaps は「回と回の間」しか見ておらず、
+# 8時間41分の回と8分45秒の回が同じ「1回」として並んでいた。
+# close を足すときの本当の危険は、close 行が発火として数えられて**空白検出が黙って壊れる**ことである。
+# 計器を足したつもりで計器を壊す型は、この repo が既に2度踏んでいる。だから両方向を覆う。
+L2="$T/memory/rounds.md"
+: > "$L2"
+# 12時間間隔の open を2本置く（正常な発火）。close をまだ書かない状態。
+now=$(date -u +%s)
+printf -- '- `x` epoch=%s 発火A\n' "$((now-43200))" >> "$L2"
+printf -- '- `y` epoch=%s 発火B\n' "$now" >> "$L2"
+out=$("$T/bin/round" gaps 2>&1)
+grep -q '見落とした発火は無い' <<<"$out"; check $? "close 行が無いとき gaps は正常（12時間間隔を空白と誤検出しない）"
+# ここに close 行を足す。**発火として数えられたら間隔が半分に見え、空白検出が壊れる。**
+printf -- '- `z` epoch=%s close dur=0h5m elapsed_s=300 締め\n' "$((now+300))" >> "$L2"
+out=$("$T/bin/round" gaps 2>&1)
+# 注意: この1件は煙感知器であって検出器ではない。変異テストで確認したところ、
+# gaps から close 除外を外しても**これは通ってしまう**（close 行が増えても間隔が広がらないので
+# 空白判定には出ない）。実際に壊れを捕まえるのは次の「件数」の1件である。
+# 通ることだけを確かめるテストは、間違った理由で通る。どちらが検出器かを明記しておく。
+grep -q '見落とした発火は無い' <<<"$out"; check $? "  close 行があっても偽の空白を報告しない（煙感知器）"
+grep -q '記録された発火 2 件' <<<"$out"; check $? "  発火は 2 件のまま（close で二重に数えない／これが検出器）"
+# times は open と close を突き合わせて所要時間を出す
+out=$("$T/bin/round" times 2>&1)
+grep -q '所要' <<<"$out"; check $? "times が所要時間を出す"
+# close は実際に epoch 差を書く。open が無ければ測れないと言って落ちる
+: > "$L2"
+"$T/bin/round" close "対応 open なし" >/dev/null 2>&1; [ $? -ne 0 ]; check $? "  open が無い close は黙って0時間と書かず、失敗する"
+"$T/bin/round" open "テスト" >/dev/null 2>&1
+"$T/bin/round" close "テスト締め" >/dev/null 2>&1; check $? "  open のあとの close は通る"
+grep -q 'close dur=' "$L2"; check $? "  close は所要時間つきの行を書く"
+
+echo "K. 外向き文書 — README が現行の稼働構成を偽っていないか"
+# 2026-09-02 の第3回診断「出来ていない点2」。README は 08-31 12:51 を最後に更新されず、
+# その45分後に構成が変わった（束ね方式 → 発火ごとの新規セッション）後も、3回の発火を経て古いままだった。
+# 本人は同じ回に PR 本文の同種の誤りを「オーナーが読む場所に既知の誤りを残さない」と言って直しており、
+# **隣のファイルに同じ論理を適用していなかった。** 同じ指摘を2回の診断で受けている以上、
+# 意志では守れないことが確定している。だから構造で検出する。
+# 注: このテストだけは足場（$T）ではなく実物（$SRC）を見る。文書の陳腐化は実物にしか起きない。
+sec=$(awk '/^## 現在の稼働構成/{f=1;next} f&&/^### /{exit} f' "$SRC/README.md")
+[ -n "$sec" ]; check $? "README に「現在の稼働構成」節がある"
+grep -q '発火のたびに新しい子セッション' <<<"$sec"; check $? "  現行方式（発火ごとの新規セッション）を述べている"
+! grep -q '常駐ワーカーを起こす' <<<"$sec"; check $? "  旧方式（persistent_session_id の束ね）を現行として書いていない"
 
 echo
 echo "── 結果: 成功 $pass / 失敗 $fail"

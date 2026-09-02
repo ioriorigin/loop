@@ -51,7 +51,7 @@ git の外にある記憶は `recall` に載らず、版も残らず、トリガ
 | 仮説を検証した | `./bin/hypo close <ID> <verified\|refuted> "根拠"` |
 | 起動した | `./bin/round open "理由"`（**preflight より前**。起きた事実を先に固定する） |
 | 作業の区切り | `memory/STATE.md` を現在地に書き換える |
-| セッションを終える前 | `./bin/checkpoint "見出し" "本文"`（ログ→STATE確認→commit→push を一括） |
+| セッションを終える前 | `./bin/checkpoint "見出し" "本文"`（ログ→**所要時間の記録**→STATE確認→commit→push を一括） |
 
 記録には必ず日付と時刻（UTC と JST 併記）を入れる。`bin/` 配下のスクリプトが自動で付ける。
 

@@ -12,10 +12,16 @@ if [ -z "$body" ]; then
     echo "本文がない。第2引数か標準入力で渡せ。" >&2; exit 2; fi
 fi
 
-echo "── 1/4 ログを記録"
+echo "── 1/5 ログを記録"
 "$ROOT/bin/log" "$title" "$body"
 
-echo "── 2/4 STATE.md が実際に更新されたかを確認"
+echo "── 2/5 この回の所要時間を台帳に閉じる"
+# 「毎回わざわざ叩く道具は、いずれ叩かれなくなる」（H005）。だから経路上に置く。
+# round close は open との差＝この回が何時間走ったかを書く。次の自分の recall に自動で出る。
+# 失敗しても締めは止めない。所要時間は記録であって、記憶の固定より優先はしない。
+"$ROOT/bin/round" close "checkpoint: $title" || echo "  （所要時間は記録できなかった。締めは続行する）"
+
+echo "── 3/5 STATE.md が実際に更新されたかを確認"
 # mtime で見てはいけない。clone すると全ファイルの mtime が clone 時刻になり、
 # STATE.md を一文字も書き換えていなくても「0分前に更新済み」で必ず素通りする。
 # トリガー起動のセッションは毎回 clone/チェックアウトから始まるので、
@@ -31,7 +37,7 @@ if git -C "$ROOT" diff --quiet HEAD -- memory/STATE.md 2>/dev/null; then
 fi
 echo "  ok（HEAD から変更あり）"
 
-echo "── 3/4 commit"
+echo "── 4/5 commit"
 git -C "$ROOT" add -A
 if git -C "$ROOT" diff --cached --quiet; then
   echo "  変更なし。commit をスキップ"
@@ -45,7 +51,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
   echo "  ok"
 fi
 
-echo "── 4/4 push"
+echo "── 5/5 push"
 for i in 1 2 3 4; do
   if git -C "$ROOT" push -u origin "$BRANCH" 2>&1 | tail -1; then
     echo "  ok — 記憶を外部に固定した"
