@@ -33,7 +33,14 @@ DEFAULT_INTERVAL_H=12
 case "${1:-list}" in
   open)
     note="${2:-}"
-    printf -- '\n- `%s` epoch=%s %s\n' "$(ts_both)" "$(date -u +%s)" "$note" >> "$F"
+    myepoch=$(date -u +%s)
+    printf -- '\n- `%s` epoch=%s %s\n' "$(ts_both)" "$myepoch" "$note" >> "$F"
+    # **どの open が自分のものかを、自分のコンテナに覚えておく**（2026-09-02 追加）。
+    # 台帳は全セッションで共有だが、この印はコンテナごとに独立している（git 管理外）。
+    # これが無いと close は「台帳の最後の open」に付く。**並行する回があると他人の回に付く。**
+    # 実際この日、00:45 の回の close が 01:13 の回に付き、
+    # 自分の回は未クローズのまま、他人の回に close 行が2本並んだ。
+    printf '%s open\n' "$myepoch" > "$ROOT/.round-current" 2>/dev/null || true
     echo "round opened -> ${F#"$ROOT/"}"
     # 台帳行をその場で外へ固定する（第3回診断「次にやるべきこと1」）。
     # **「記録は失われうる作業の前に置く」と書きながら、その台帳行の永続化だけが
@@ -82,14 +89,40 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" -- "$F" >/dev/null 2>&1; 
     # _common.sh の set -euo pipefail が効いている。open 行が1本も無いと grep が 1 を返し、
     # pipefail でこの代入ごと失敗して**何も出さずに死ぬ。** 実際 selftest の新規台帳で踏んだ。
     # 「まだ open が無い」は異常ではなく、下で "?" として扱うべき状態である。
-    o=$(grep -E '^- `.*epoch=' "$F" 2>/dev/null | tail -1 | grep -oE 'epoch=[0-9]+' | cut -d= -f2 || true)
+    # **自分の回の open を閉じる。台帳の最後の open ではない。**
+    # 台帳は全セッションが同じファイルに追記する。並行する回があると「最後の open」は他人のものになる。
+    # .round-current はこのコンテナだけが持つ印なので、並行しても取り違えない。
+    # 印が無い回（古い台帳・印を消した回）は、従来どおり最後の open に落とす。
+    o=""; state=""
+    if [ -f "$ROOT/.round-current" ]; then
+      read -r o state < "$ROOT/.round-current" || true
+    fi
+    # 同じ回を二度閉じない。二重の close は、どちらが正しいか誰にも分からない記録である。
+    # **判定は台帳の grep ではなく、この印の状態で行う。**
+    # 台帳を `for=` で grep する実装も書いたが、**同じ秒に開いた別の回と epoch が衝突して
+    # 正当な close まで拒否した**（selftest の連続する回で実際に落ちた）。
+    # 秒単位の epoch は、この用途では一意な鍵にならない。
+    if [ "$state" = "closed" ]; then
+      echo ">> この回（epoch=$o）は既に close 済み。二重に締めない。" >&2
+      echo ">> 締め直したいなら、何を訂正するのかを台帳に追記してから行うこと。" >&2
+      exit 2
+    fi
+    # 印が無い回（この変更より前に開いた回・印を失った回）は、従来どおり最後の open に落とす。
+    # 拒否はしない。**新しい安全装置のために、古い回が締められなくなってはいけない。**
+    if [ -z "$o" ]; then
+      o=$(grep -E '^- `.*epoch=' "$F" 2>/dev/null | tail -1 | grep -oE 'epoch=[0-9]+' | cut -d= -f2 || true)
+    fi
     now=$(date -u +%s)
     if [ -n "$o" ]; then
       dur=$(awk -v a="$now" -v b="$o" 'BEGIN{printf "%.1f", (a-b)/3600}')
     else
       dur="?"   # open が無い回。台帳の順序が壊れている合図なので黙って 0 にしない
     fi
-    printf -- '  close `%s` elapsed=%sh mark=%s %s\n' "$(ts_both)" "$dur" "$mark" "$note" >> "$F"
+    # for= はどの open の close なのかを明示する。**並行する回を、後から読む自分が取り違えないため。**
+    printf -- '  close `%s` elapsed=%sh mark=%s for=%s %s\n' "$(ts_both)" "$dur" "$mark" "${o:-?}" "$note" >> "$F"
+    # 印は消さず「閉じた」と書き換える。**消すと、二度目の close が
+    # 「印の無い回」として最後の open に落ち、他人の回に付いてしまう。**
+    [ -n "$o" ] && printf '%s closed\n' "$o" > "$ROOT/.round-current" 2>/dev/null || true
     echo "round closed -> ${dur}h / ${mark} / ${F#"$ROOT/"}"
     ;;
   list)
@@ -124,13 +157,22 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" -- "$F" >/dev/null 2>&1; 
         if (match(lab, /`[^`]+`/)) lab = substr(lab, RSTART+1, RLENGTH-2)
         sub(/ UTC.*/, "", lab)
         n++; L[n] = lab; D[n] = "?"; M[n] = "?"; T[n] = "(未クローズ)"
+        if (match($0, /epoch=[0-9]+/)) IDX[substr($0, RSTART+6, RLENGTH-6)] = n
         next
       }
       /^  close `/ {
         if (n == 0) next
-        if (match($0, /elapsed=[^ ]+/)) D[n] = substr($0, RSTART+8, RLENGTH-8)
-        if (match($0, /mark=[+-]/))     M[n] = substr($0, RSTART+5, 1)
-        t = $0; sub(/^.*mark=[+-] ?/, "", t); T[n] = t
+        # for= があれば、その open に付ける。**並行する回があると「直近の open」は他人のものになる。**
+        # 実際 2026-09-02、00:45 の回の close が 01:13 の回に付いた。for= はそれを防ぐ。
+        # 印の無い古い close 行は、従来どおり直近の open に落とす（過去の記録は読めなくならない）。
+        k = n
+        if (match($0, /for=[0-9]+/)) {
+          e = substr($0, RSTART+4, RLENGTH-4)
+          if (e in IDX) k = IDX[e]
+        }
+        if (match($0, /elapsed=[^ ]+/)) D[k] = substr($0, RSTART+8, RLENGTH-8)
+        if (match($0, /mark=[+-]/))     M[k] = substr($0, RSTART+5, 1)
+        t = $0; sub(/^.*mark=[+-] ?/, "", t); sub(/^for=[0-9]+ ?/, "", t); T[k] = t
         next
       }
       END {

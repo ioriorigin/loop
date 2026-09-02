@@ -217,6 +217,32 @@ before=$(grep -c 'epoch=' "$L")
 outo=$("$T/bin/round" open "git外" 2>&1); check $? "  git 管理外でも open は落ちない"
 grep -q '橋頭堡 push は省略' <<<"$outo"; check $? "  押さなかった理由を黙らずに言う"
 
+echo "J1a. round close — 並行する回があっても自分の回を閉じるか"
+# 2026-09-02 の実障害の回帰テスト。台帳は全セッションが同じファイルに追記する。
+# close が「台帳の最後の open」に付く実装だったので、**00:45 の回の close が 01:13 の回に付いた。**
+# 結果、自分の回は未クローズのまま、他人の回に close 行が2本並んだ。
+# 台帳は停止条件が読む唯一の量である。**取り違えた台帳は、無い台帳より悪い。**
+P="$(mktemp -d)"; Q="$(mktemp -d)"
+for d in "$P" "$Q"; do
+  mkdir -p "$d/bin" "$d/memory"; cp "$SRC"/bin/{_common.sh,round} "$d/bin/"; chmod +x "$d"/bin/*
+done
+# 2つのコンテナが同じ台帳を共有する状況を作る（実体は1つ、印はそれぞれ別）
+"$P/bin/round" open "自分の回" >/dev/null 2>&1
+cp "$P/memory/rounds.md" "$Q/memory/rounds.md"
+sleep 1
+"$Q/bin/round" open "並行する他人の回" >/dev/null 2>&1     # 台帳の最後の open は他人のものになる
+cp "$Q/memory/rounds.md" "$P/memory/rounds.md"
+mine=$(awk '{print $1}' "$P/.round-current")
+"$P/bin/round" close + "自分の根拠" >/dev/null 2>&1
+grep -q "for=$mine" "$P/memory/rounds.md"; check $? "close は自分の open を指す（for= が一致する）"
+"$P/bin/round" gaps 12 2>&1 | grep -q '自分の根拠'
+check $? "  gaps が自分の回に密度を出す"
+[ "$("$P/bin/round" gaps 12 2>&1 | grep -c '未クローズ)')" = "1" ]
+check $? "  他人の回だけが未クローズとして残る（自分の回に付け替わらない）"
+! "$P/bin/round" close + "もう一度" >/dev/null 2>&1
+check $? "  同じ回を二度閉じない"
+rm -rf "$P" "$Q"
+
 echo "J1b. round open — 橋頭堡 push が台帳行だけを外に固定するか"
 # 第3回診断「次にやるべきこと1」。台帳行の永続化が、その回の最後の push に依存していた。
 # 8時間41分 commit ゼロで走った回があり、回収されていれば丸ごと消えていた。
