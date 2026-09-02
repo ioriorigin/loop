@@ -367,6 +367,21 @@ ih=$(grep -oE '^DEFAULT_INTERVAL_H=[0-9]+' "$SRC/bin/round" | cut -d= -f2)
 [ -n "$ih" ]; check $? "  bin/round が期待間隔の定数を持っている"
 [ "$rh" = "$ih" ]; check $? "  README の cron($cron)が round の期待間隔(${ih}h)と一致する"
 
+# 2026-09-02 追加。memory/ に置いた記憶ファイルが README の「構造」に全部載っているか。
+#
+# なぜ要るか: memory/BOOTSTRAP.md が README のどこにも載っていなかった。
+# **このファイルは「リポジトリを読んでも起動の仕方が分からない」を直すために作られたもの**であり、
+# それ自身が外向きの地図から漏れていた。目的1（他人が同じ構造を組める）に直接効く欠落である。
+# 上の cron 検査と同じ発想: 手で直すと必ずまた腐るので、実物どうしを突き合わせる。
+# 参照する側（README）ではなく**実在するファイルの側を基準にする。** 文書を基準にすると、
+# 消えたファイルの記述が残っていても通ってしまう（追記専用文書と同じ「何でも肯定する計器」）。
+missing=""
+for mf in "$SRC"/memory/*.md; do
+  b=$(basename "$mf")
+  grep -q "$b" "$readme" || missing="$missing $b"
+done
+[ -z "$missing" ]; check $? "  memory/ の全記憶ファイルが README に載っている（漏れ:${missing:-なし}）"
+
 echo
 echo "── 結果: 成功 $pass / 失敗 $fail"
 if [ "$fail" -gt 0 ]; then
