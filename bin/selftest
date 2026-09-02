@@ -149,7 +149,7 @@ echo "H. checkpoint — STATE.md を更新せずに締められないか"
 # mtime 判定だと clone 直後は必ず age=0 で素通りする。内容ベースでなければ意味がない。
 G="$(mktemp -d)"
 mkdir -p "$G/bin" "$G/memory/notes" "$G/memory/log"
-cp "$SRC"/bin/{_common.sh,log,note,hypo,recall,checkpoint} "$G/bin/"; chmod +x "$G"/bin/*
+cp "$SRC"/bin/{_common.sh,log,note,hypo,recall,checkpoint,round} "$G/bin/"; chmod +x "$G"/bin/*
 printf '# 現在地\n初期状態。\n' > "$G/memory/STATE.md"
 git -C "$G" init -q 2>/dev/null
 git -C "$G" add -A >/dev/null 2>&1
@@ -166,7 +166,13 @@ grep -q '1文字も変わっていない' <<<"$outc"; check $? "  STATE ゲー�
 # STATE.md を書き換えれば、少なくとも STATE ゲートは通過する
 printf '# 現在地\n書き換えた。\n' > "$G/memory/STATE.md"
 outc2=$("$G/bin/checkpoint" "見出し" "本文" 2>&1)
-grep -q '3/4 commit' <<<"$outc2"; check $? "STATE.md を更新すれば commit 段階まで進む"
+grep -q '4/5 commit' <<<"$outc2"; check $? "STATE.md を更新すれば commit 段階まで進む"
+# 密度の印を渡したら、締めの経路が round close を呼んで台帳に残すこと。
+# 手で叩く手順にすると必ず飛ばす。飛ばす余地を構造から消すのが checkpoint の存在理由である。
+printf '# 現在地\nさらに書き換えた。\n' > "$G/memory/STATE.md"
+"$G/bin/checkpoint" "見出し" "本文" + "外向き1件" >/dev/null 2>&1
+grep -q 'mark=+' "$G/memory/rounds.md" 2>/dev/null
+check $? "  密度の印を渡すと checkpoint が台帳に close 行を残す"
 rm -rf "$G"
 echo "J. round — 見ていない発火を検出できるか"
 # 停止条件のカウンタが手動だと、途中で死んだ回は数えられず規定が素通りする。
@@ -200,6 +206,31 @@ before=$(grep -c 'epoch=' "$L")
 "$T/bin/round" open "テスト" >/dev/null 2>&1; check $? "open が通る"
 [ "$(grep -c 'epoch=' "$L")" = "$((before+1))" ]; check $? "  open は解析可能な行を1行だけ足す"
 
+# close — 回の内側を測る。open だけの台帳は「回と回の間」しか見ていなかった（第3回診断の盲点1）
+: > "$L"
+"$T/bin/round" open "テスト回" >/dev/null 2>&1
+"$T/bin/round" close + "外向き1件" >/dev/null 2>&1; check $? "close が通る"
+# close 行が発火として数えられてはいけない。数えると間隔が半分に見え、空白検出が壊れる
+[ "$(grep -cE '^- `.*epoch=' "$L")" = "1" ]; check $? "  close 行は発火として数えられない"
+out=$("$T/bin/round" gaps 12 2>&1)
+grep -q '直近の回（所要時間と密度）' <<<"$out"; check $? "  gaps が回の内側（所要時間と密度）を出す"
+# 根拠なしの close は通してはいけない。自己申告は必ず甘くなる
+"$T/bin/round" close + >/dev/null 2>&1; [ $? -ne 0 ]; check $? "  根拠なしの close は拒否される"
+"$T/bin/round" close x "y" >/dev/null 2>&1; [ $? -ne 0 ]; check $? "  + か - 以外の印は拒否される"
+# 薄い回3連続 = 規則の停止条件。参照する量をここで初めて機械が持つ
+: > "$L"
+for k in 1 2 3; do
+  "$T/bin/round" open "薄い回$k" >/dev/null 2>&1
+  "$T/bin/round" close - "全部ゼロ" >/dev/null 2>&1
+done
+out=$("$T/bin/round" gaps 12 2>&1)
+grep -q '薄い回が 3 回連続' <<<"$out"; check $? "  薄い回が3回続いたら停止条件を突きつける"
+# 濃い回が1つ挟まれば連続は切れる。切れないと警告が鳴りっぱなしになり、誰も読まなくなる
+"$T/bin/round" open "濃い回" >/dev/null 2>&1
+"$T/bin/round" close + "README 修正" >/dev/null 2>&1
+out=$("$T/bin/round" gaps 12 2>&1)
+! grep -q '薄い回が' <<<"$out"; check $? "  濃い回が入れば連続は切れる"
+
 echo "I. preflight — push 失敗の理由を取り違えないか"
 # 2026-08-30 の実障害の回帰テスト。遅れているだけの non-fast-forward を
 # 「push できない」と報告し、停止規則を誤発動させかけた。誤警報は1回分のコストになる。
@@ -224,7 +255,7 @@ k=$(push_err_kind "fatal: unable to access: Could not resolve host: github.com")
 [ "$k" = "unknown" ]; check $? "未知のエラーを auth や stale に誤分類しない"
 
 
-echo "J. 外向き文書 — README の現行構成が実態から腐っていないか"
+echo "K. 外向き文書 — README の現行構成が実態から腐っていないか"
 # なぜこれがあるか:
 #   README は git の中にあるのに、2回続けて現実を偽った。08-31 12:51 に書き直した45分後に
 #   構成が変わり、以後3回の発火を経ても誰も直さなかった。メンター第2回・第3回で同じ指摘を受けている。

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # 発火台帳。**起きた瞬間に1行書く。締めのときではない。**
-#   ./bin/round open [メモ]    起動直後に呼ぶ。この回が起きた事実を確定させる
-#   ./bin/round list           記録された発火を並べる
-#   ./bin/round gaps [時間]    期待間隔より広い空白＝見ていない発火を検出する
+#   ./bin/round open [メモ]        起動直後に呼ぶ。この回が起きた事実を確定させる
+#   ./bin/round close <+|-> 根拠   締めに呼ぶ。所要時間と、その回が濃かったか薄かったかを残す
+#   ./bin/round list               記録された発火を並べる
+#   ./bin/round gaps [時間]        空白＝見ていない発火と、直近の回の密度を出す
 #
 # なぜ「起きた瞬間」なのか。
 # 締めのときに書く設計は、その回が途中で死ぬと1行も残さない。2026-08-30 に4回それで全損した。
@@ -12,6 +13,16 @@
 # 停止条件「薄い回が3回連続したら頻度を下げる」のカウンタが手動だった。
 # 「見ていない回は数えられず、数えられない回は停止条件を素通りする」（第2回診断）。
 # 発火が機械的に並べば、抜けた回は間隔の空白として自動的に浮かぶ。
+#
+# なぜ close が要るのか（2026-09-02 追加。第3回診断の盲点1）。
+# open だけの台帳は「回と回の間の空白」しか見ていない。**回の内側の空白は誰も測っていなかった。**
+# 実際、8時間41分走って commit ゼロの回と、8分45秒の回が、同じ「1回」として並んでいた。
+# gaps は「見落とした発火は無い」と答える。健全である、と計器は言う。
+# close が所要時間と密度の印を残せば、その空白は次の自分の recall に自動的に突きつけられる。
+#
+# 印は `+`（濃い）か `-`（薄い）。判定基準は .claude/rules/autonomous-loop.md「薄い回の定義」。
+# 外向きの成果物・決着した仮説・修正した欠陥が全部ゼロなら薄い回である。
+# 自己申告なので必ず甘くなる。だから根拠を必須にした。**書かずに濃いと自称した回は薄い回と数える。**
 source "$(dirname "$0")/_common.sh"
 
 F="$MEM/rounds.md"
@@ -24,6 +35,30 @@ case "${1:-list}" in
     note="${2:-}"
     printf -- '\n- `%s` epoch=%s %s\n' "$(ts_both)" "$(date -u +%s)" "$note" >> "$F"
     echo "round opened -> ${F#"$ROOT/"}"
+    ;;
+  close)
+    mark="${2:-}"; note="${3:-}"
+    case "$mark" in
+      +|-) ;;
+      *) echo "usage: round close <+|-> \"根拠\"  (+ が濃い回、- が薄い回)" >&2; exit 2 ;;
+    esac
+    if [ -z "$note" ]; then
+      echo ">> 根拠を書け。規則「薄い回の定義」は、外向きの成果物・決着した仮説・修正した欠陥の" >&2
+      echo ">> どれが非ゼロだったかの併記を求めている。書かずに濃いと自称した回は薄い回と数える。" >&2
+      exit 2
+    fi
+    # _common.sh の set -euo pipefail が効いている。open 行が1本も無いと grep が 1 を返し、
+    # pipefail でこの代入ごと失敗して**何も出さずに死ぬ。** 実際 selftest の新規台帳で踏んだ。
+    # 「まだ open が無い」は異常ではなく、下で "?" として扱うべき状態である。
+    o=$(grep -E '^- `.*epoch=' "$F" 2>/dev/null | tail -1 | grep -oE 'epoch=[0-9]+' | cut -d= -f2 || true)
+    now=$(date -u +%s)
+    if [ -n "$o" ]; then
+      dur=$(awk -v a="$now" -v b="$o" 'BEGIN{printf "%.1f", (a-b)/3600}')
+    else
+      dur="?"   # open が無い回。台帳の順序が壊れている合図なので黙って 0 にしない
+    fi
+    printf -- '  close `%s` elapsed=%sh mark=%s %s\n' "$(ts_both)" "$dur" "$mark" "$note" >> "$F"
+    echo "round closed -> ${dur}h / ${mark} / ${F#"$ROOT/"}"
     ;;
   list)
     grep -E '^- `.*epoch=' "$F" || echo "(発火の記録なし)"
@@ -49,6 +84,40 @@ case "${1:-list}" in
         else        printf "  ** %d 箇所の空白。見ていない発火がある可能性が高い **\n", n
       }
     '
+    # 回の内側 — 直近の回の所要時間と密度。空白検出と同じ場所に出す。
+    # gaps は recall が毎回叩くので、ここに出せば次の自分の目に必ず入る。
+    awk '
+      /^- `.*epoch=/ {
+        lab = $0
+        if (match(lab, /`[^`]+`/)) lab = substr(lab, RSTART+1, RLENGTH-2)
+        sub(/ UTC.*/, "", lab)
+        n++; L[n] = lab; D[n] = "?"; M[n] = "?"; T[n] = "(未クローズ)"
+        next
+      }
+      /^  close `/ {
+        if (n == 0) next
+        if (match($0, /elapsed=[^ ]+/)) D[n] = substr($0, RSTART+8, RLENGTH-8)
+        if (match($0, /mark=[+-]/))     M[n] = substr($0, RSTART+5, 1)
+        t = $0; sub(/^.*mark=[+-] ?/, "", t); T[n] = t
+        next
+      }
+      END {
+        if (n == 0) exit
+        printf "\n  直近の回（所要時間と密度）\n"
+        s = n - 4; if (s < 1) s = 1
+        for (i = s; i <= n; i++) printf "    %s  %6s  %s  %s\n", L[i], D[i], M[i], substr(T[i], 1, 46)
+        thin = 0
+        for (i = n; i >= 1 && i > n - 3; i--) if (M[i] == "-") thin++; else break
+        if (thin >= 3) {
+          printf "\n  ** 薄い回が %d 回連続している。**\n", thin
+          printf "  .claude/rules/autonomous-loop.md の停止条件に該当する。\n"
+          printf "  頻度を下げるか一時停止し、判断と理由を STATE.md と行動ログに書くこと。\n"
+        }
+        unclosed = 0
+        for (i = 1; i <= n; i++) if (M[i] == "?") unclosed++
+        if (unclosed > 0) printf "\n  (未クローズの回が %d 件ある。close を飛ばした回は密度を数えられない)\n", unclosed
+      }
+    ' "$F"
     ;;
-  *) echo "usage: round {open|list|gaps}" >&2; exit 2 ;;
+  *) echo "usage: round {open|close|list|gaps}" >&2; exit 2 ;;
 esac

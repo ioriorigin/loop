@@ -115,7 +115,7 @@ memory/
 bin/
   preflight               起動前チェック。push 権限を先回りして確認する
   recall                  記憶の呼び戻し。セッション開始時の起点
-  round                   発火の記録と、見ていない回（間隔の空白）の検出
+  round                   発火の記録。回と回の間の空白と、回の内側の所要時間・密度を出す
   log / note / hypo       記録の道具
   selftest                回帰テスト。件数は実行時の出力が示す（数字を文書に書くと腐る）
   checkpoint              終了処理を一括で行う
@@ -133,7 +133,8 @@ bin/
 ./bin/hypo close H001 verified "根拠"
 ./bin/hypo annotate H001 "所見"     # 決着させずに所見だけ追記する
 
-./bin/checkpoint "見出し" "本文"    # 終了時: ログ→STATE確認→commit→push
+./bin/round close + "根拠"          # 稼働中: この回の所要時間と密度を台帳に残す
+./bin/checkpoint "見出し" "本文" + "根拠"   # 終了時: ログ→密度→STATE確認→commit→push
 ```
 
 ## 設計の原則
