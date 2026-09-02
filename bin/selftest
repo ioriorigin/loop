@@ -163,6 +163,13 @@ after_n=$(git -C "$G" rev-list --count HEAD)
 [ "$before_n" = "$after_n" ]; check $? "STATE.md 無変更ならコミットが作られない"
 [ "$rc" -ne 0 ]; check $? "  かつ exit 0 で終わらない"
 grep -q '1文字も変わっていない' <<<"$outc"; check $? "  STATE ゲートで止まったと分かるメッセージが出る"
+# STATE ゲートで止まった回は、台帳にも触れていないこと。
+# 触れていると close 行だけが残り、**やり直しの checkpoint が二重 close になる。**
+# 締めをやり直せない締めの道具は、締めの道具ではない。2026-09-02 に実際に踏んだ。
+printf '# 台帳\n\n- `t` epoch=1788000000 x\n' > "$G/memory/rounds.md"
+"$G/bin/checkpoint" "見出し" "本文" + "根拠" >/dev/null 2>&1
+! grep -q 'mark=' "$G/memory/rounds.md"
+check $? "  STATE ゲートで止まった回は台帳に close 行を書かない（やり直せる）"
 # STATE.md を書き換えれば、少なくとも STATE ゲートは通過する
 printf '# 現在地\n書き換えた。\n' > "$G/memory/STATE.md"
 outc2=$("$G/bin/checkpoint" "見出し" "本文" 2>&1)
