@@ -109,8 +109,19 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" -- "$F" >/dev/null 2>&1; 
     fi
     # 印が無い回（この変更より前に開いた回・印を失った回）は、従来どおり最後の open に落とす。
     # 拒否はしない。**新しい安全装置のために、古い回が締められなくなってはいけない。**
+    #
+    # **ただし、その帰属は確かめられていない。だから `for=?` と書く。**
+    # 2026-09-02、印を持たない回がこの経路を通り、**並行していた他人の回に2度も close を付けた。**
+    # 1度目は取り違えに気づいて訂正したのに、訂正のあとに同じ経路でもう一度付けている。
+    # 確かめていない帰属を、確かめた帰属と同じ書き方で残したのが原因である。
+    # **不確かなものは、不確かだと書く。** 読む側（gaps）は `for=?` を従来どおり直近の open に落とす。
+    unverified=""
     if [ -z "$o" ]; then
       o=$(grep -E '^- `.*epoch=' "$F" 2>/dev/null | tail -1 | grep -oE 'epoch=[0-9]+' | cut -d= -f2 || true)
+      unverified=1
+      echo ">> この回の印（.round-current）が無い。**どの open が自分のものか確かめられない。**" >&2
+      echo ">> 台帳の最後の open に落とすが、並行する回があればそれは他人の回である。" >&2
+      echo ">> close 行には for=? と書く。帰属を確かめたいなら台帳を読んで訂正を追記すること。" >&2
     fi
     now=$(date -u +%s)
     if [ -n "$o" ]; then
@@ -119,7 +130,8 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" -- "$F" >/dev/null 2>&1; 
       dur="?"   # open が無い回。台帳の順序が壊れている合図なので黙って 0 にしない
     fi
     # for= はどの open の close なのかを明示する。**並行する回を、後から読む自分が取り違えないため。**
-    printf -- '  close `%s` elapsed=%sh mark=%s for=%s %s\n' "$(ts_both)" "$dur" "$mark" "${o:-?}" "$note" >> "$F"
+    key="${o:-?}"; [ -n "$unverified" ] && key="?"
+    printf -- '  close `%s` elapsed=%sh mark=%s for=%s %s\n' "$(ts_both)" "$dur" "$mark" "$key" "$note" >> "$F"
     # 印は消さず「閉じた」と書き換える。**消すと、二度目の close が
     # 「印の無い回」として最後の open に落ち、他人の回に付いてしまう。**
     [ -n "$o" ] && printf '%s closed\n' "$o" > "$ROOT/.round-current" 2>/dev/null || true

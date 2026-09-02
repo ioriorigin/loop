@@ -241,6 +241,12 @@ check $? "  gaps が自分の回に密度を出す"
 check $? "  他人の回だけが未クローズとして残る（自分の回に付け替わらない）"
 ! "$P/bin/round" close + "もう一度" >/dev/null 2>&1
 check $? "  同じ回を二度閉じない"
+# 印を失った回は、帰属を確かめられない。**確かめていない帰属を、確かめた帰属と同じ形で書かない。**
+# 2026-09-02、この経路が他人の回に close を2度付けた。1度目の訂正の直後にもう1度である。
+rm -f "$P/.round-current"
+outu=$("$P/bin/round" close + "印を失った回" 2>&1)
+grep -q 'for=? ' "$P/memory/rounds.md"; check $? "  印が無い回の close は for=? と書く（帰属を偽らない）"
+grep -q '確かめられない' <<<"$outu"; check $? "  そのとき黙らずに警告する"
 rm -rf "$P" "$Q"
 
 echo "J1b. round open — 橋頭堡 push が台帳行だけを外に固定するか"
