@@ -204,6 +204,13 @@ echo "I. preflight — push 失敗の理由を取り違えないか"
 # 2026-08-30 の実障害の回帰テスト。遅れているだけの non-fast-forward を
 # 「push できない」と報告し、停止規則を誤発動させかけた。誤警報は1回分のコストになる。
 source "$SRC/bin/_common.sh"
+# _common.sh は `set -euo pipefail` を持っている。source はそれを**このテスト自身のシェルに効かせる。**
+# つまりこの行より後ろでは、assert が1件でも落ちた瞬間に errexit でスイートごと即死し、
+# [NG] も「結果: 成功N/失敗M」も出ないまま終わる。**失敗を報告できないテストになっていた。**
+# 2026-09-02、J 節を足して実際に踏んだ（変異テストで落ちるはずが、無言で終了した）。
+# 落ちることを確かめない限り、この壊れ方は永久に見えない。README「テストは、バグを検出できることまで
+# 確かめる」の実例がテスト自身に出た形である。errexit をここで戻す。
+set +e
 k=$(push_err_kind " ! [rejected]  branch -> branch (non-fast-forward)
 error: failed to push some refs to 'https://github.com/ioriorigin/loop'
 hint: Updates were rejected because the tip of your current branch is behind")
@@ -216,6 +223,34 @@ k=$(push_err_kind "fatal: Authentication failed for 'https://github.com/ioriorig
 k=$(push_err_kind "fatal: unable to access: Could not resolve host: github.com")
 [ "$k" = "unknown" ]; check $? "未知のエラーを auth や stale に誤分類しない"
 
+
+echo "J. 外向き文書 — README の現行構成が実態から腐っていないか"
+# なぜこれがあるか:
+#   README は git の中にあるのに、2回続けて現実を偽った。08-31 12:51 に書き直した45分後に
+#   構成が変わり、以後3回の発火を経ても誰も直さなかった。メンター第2回・第3回で同じ指摘を受けている。
+#   **同じ指摘を2度受けた時点で、意志では守れないことが確定している。だから構造に落とす。**
+#   2026-09-02 に public になったので、この腐りは外から読める誤情報になった。
+readme="$SRC/README.md"; infra="$SRC/memory/INFRA.md"
+[ -f "$readme" ]; check $? "README.md が存在する"
+# 「現在の稼働構成」節だけを切り出す。歴史として残した旧方式の記述は対象外にする。
+cur=$(awk '/^## 現在の稼働構成/{f=1;next} /^###? /{if(f)exit} f' "$readme")
+[ -n "$cur" ]; check $? "  「現在の稼働構成」節を抽出できる"
+# 旧方式（束ね）の語が現行の構成表に残っていたら落とす。歴史節に出るのは正しいので節を限定している。
+! grep -qE '常駐ワーカー|永続セッション' <<<"$cur"
+check $? "  現行構成の節に旧方式（常駐ワーカー/永続セッション）が書かれていない"
+# 構成表の cron が、実際に空白検出が使っている間隔と一致するか。
+# 最初はこれを「INFRA.md に同じ文字列があるか」で書いた。**通ったが、バグを捕まえられなかった。**
+# INFRA.md は追記専用なので、過去の `44 * * * *` も永久に残っている。どんな古い cron を
+# README に書いても「INFRA のどこかにある」で通ってしまう。
+# 追記専用のファイルは、grep の対象としては「何でも肯定する計器」である。
+# だから文書ではなく、道具が持っている数値（bin/round の DEFAULT_INTERVAL_H）に突き合わせる。
+cron=$(grep -oE '44 [0-9*/]+ [0-9*/]+ [0-9*/]+ [0-9*/]+' <<<"$cur" | head -1)
+[ -n "$cron" ]; check $? "  現行構成の節に cron が書かれている"
+hf=$(awk '{print $2}' <<<"$cron")            # 時フィールド。*/12 なら 12 時間おき、* なら毎時
+case "$hf" in */*) rh="${hf#*/}";; '*') rh=1;; *) rh=24;; esac
+ih=$(grep -oE '^DEFAULT_INTERVAL_H=[0-9]+' "$SRC/bin/round" | cut -d= -f2)
+[ -n "$ih" ]; check $? "  bin/round が期待間隔の定数を持っている"
+[ "$rh" = "$ih" ]; check $? "  README の cron($cron)が round の期待間隔(${ih}h)と一致する"
 
 echo
 echo "── 結果: 成功 $pass / 失敗 $fail"
