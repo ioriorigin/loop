@@ -149,7 +149,7 @@ echo "H. checkpoint — STATE.md を更新せずに締められないか"
 # mtime 判定だと clone 直後は必ず age=0 で素通りする。内容ベースでなければ意味がない。
 G="$(mktemp -d)"
 mkdir -p "$G/bin" "$G/memory/notes" "$G/memory/log"
-cp "$SRC"/bin/{_common.sh,log,note,hypo,recall,checkpoint} "$G/bin/"; chmod +x "$G"/bin/*
+cp "$SRC"/bin/{_common.sh,log,note,hypo,recall,checkpoint,round} "$G/bin/"; chmod +x "$G"/bin/*
 printf '# 現在地\n初期状態。\n' > "$G/memory/STATE.md"
 git -C "$G" init -q 2>/dev/null
 git -C "$G" add -A >/dev/null 2>&1
@@ -166,9 +166,13 @@ grep -q '1文字も変わっていない' <<<"$outc"; check $? "  STATE ゲー�
 # STATE.md を書き換えれば、少なくとも STATE ゲートは通過する
 printf '# 現在地\n書き換えた。\n' > "$G/memory/STATE.md"
 outc2=$("$G/bin/checkpoint" "見出し" "本文" 2>&1)
-# 段階番号（3/4 など）で照合すると、工程を1つ足すだけでテストが割れる。実際 2026-09-02 に
-# round close を足して割れた。見たいのは「commit 段階に到達すること」であって番号ではない。
-grep -qE '── [0-9]+/[0-9]+ commit' <<<"$outc2"; check $? "STATE.md を更新すれば commit 段階まで進む"
+grep -q '4/5 commit' <<<"$outc2"; check $? "STATE.md を更新すれば commit 段階まで進む"
+# 密度の印を渡したら、締めの経路が round close を呼んで台帳に残すこと。
+# 手で叩く手順にすると必ず飛ばす。飛ばす余地を構造から消すのが checkpoint の存在理由である。
+printf '# 現在地\nさらに書き換えた。\n' > "$G/memory/STATE.md"
+"$G/bin/checkpoint" "見出し" "本文" + "外向き1件" >/dev/null 2>&1
+grep -q 'mark=+' "$G/memory/rounds.md" 2>/dev/null
+check $? "  密度の印を渡すと checkpoint が台帳に close 行を残す"
 rm -rf "$G"
 echo "J. round — 見ていない発火を検出できるか"
 # 停止条件のカウンタが手動だと、途中で死んだ回は数えられず規定が素通りする。
@@ -202,15 +206,41 @@ before=$(grep -c 'epoch=' "$L")
 "$T/bin/round" open "テスト" >/dev/null 2>&1; check $? "open が通る"
 [ "$(grep -c 'epoch=' "$L")" = "$((before+1))" ]; check $? "  open は解析可能な行を1行だけ足す"
 
+# close — 回の内側を測る。open だけの台帳は「回と回の間」しか見ていなかった（第3回診断の盲点1）
+: > "$L"
+"$T/bin/round" open "テスト回" >/dev/null 2>&1
+"$T/bin/round" close + "外向き1件" >/dev/null 2>&1; check $? "close が通る"
+# close 行が発火として数えられてはいけない。数えると間隔が半分に見え、空白検出が壊れる
+[ "$(grep -cE '^- `.*epoch=' "$L")" = "1" ]; check $? "  close 行は発火として数えられない"
+out=$("$T/bin/round" gaps 12 2>&1)
+grep -q '直近の回（所要時間と密度）' <<<"$out"; check $? "  gaps が回の内側（所要時間と密度）を出す"
+# 根拠なしの close は通してはいけない。自己申告は必ず甘くなる
+"$T/bin/round" close + >/dev/null 2>&1; [ $? -ne 0 ]; check $? "  根拠なしの close は拒否される"
+"$T/bin/round" close x "y" >/dev/null 2>&1; [ $? -ne 0 ]; check $? "  + か - 以外の印は拒否される"
+# 薄い回3連続 = 規則の停止条件。参照する量をここで初めて機械が持つ
+: > "$L"
+for k in 1 2 3; do
+  "$T/bin/round" open "薄い回$k" >/dev/null 2>&1
+  "$T/bin/round" close - "全部ゼロ" >/dev/null 2>&1
+done
+out=$("$T/bin/round" gaps 12 2>&1)
+grep -q '薄い回が 3 回連続' <<<"$out"; check $? "  薄い回が3回続いたら停止条件を突きつける"
+# 濃い回が1つ挟まれば連続は切れる。切れないと警告が鳴りっぱなしになり、誰も読まなくなる
+"$T/bin/round" open "濃い回" >/dev/null 2>&1
+"$T/bin/round" close + "README 修正" >/dev/null 2>&1
+out=$("$T/bin/round" gaps 12 2>&1)
+! grep -q '薄い回が' <<<"$out"; check $? "  濃い回が入れば連続は切れる"
+
 echo "I. preflight — push 失敗の理由を取り違えないか"
 # 2026-08-30 の実障害の回帰テスト。遅れているだけの non-fast-forward を
 # 「push できない」と報告し、停止規則を誤発動させかけた。誤警報は1回分のコストになる。
 source "$SRC/bin/_common.sh"
-# _common.sh は `set -euo pipefail` を宣言している。source するとこのテストスクリプト自身に
-# errexit が伝染し、**以降「失敗することを確かめるテスト」が最初の1件でスクリプトごと即死する。**
-# しかも死ぬのは結果行を出す前なので、出力は「途中で切れた」ではなく「普通に失敗した」ように見える。
-# 2026-09-02、実際に J 節を足した瞬間にこれを踏んだ。テストの土台が黙って壊れる型そのものである。
-# selftest は失敗を検査する道具なので、errexit は明示的に外しておく。
+# _common.sh は `set -euo pipefail` を持っている。source はそれを**このテスト自身のシェルに効かせる。**
+# つまりこの行より後ろでは、assert が1件でも落ちた瞬間に errexit でスイートごと即死し、
+# [NG] も「結果: 成功N/失敗M」も出ないまま終わる。**失敗を報告できないテストになっていた。**
+# 2026-09-02、J 節を足して実際に踏んだ（変異テストで落ちるはずが、無言で終了した）。
+# 落ちることを確かめない限り、この壊れ方は永久に見えない。README「テストは、バグを検出できることまで
+# 確かめる」の実例がテスト自身に出た形である。errexit をここで戻す。
 set +e
 k=$(push_err_kind " ! [rejected]  branch -> branch (non-fast-forward)
 error: failed to push some refs to 'https://github.com/ioriorigin/loop'
@@ -225,49 +255,33 @@ k=$(push_err_kind "fatal: unable to access: Could not resolve host: github.com")
 [ "$k" = "unknown" ]; check $? "未知のエラーを auth や stale に誤分類しない"
 
 
-echo "J. round close / times — 回の内側の長さを測れるか。そして gaps を壊していないか"
-# 2026-09-02 の第3回診断の盲点1。gaps は「回と回の間」しか見ておらず、
-# 8時間41分の回と8分45秒の回が同じ「1回」として並んでいた。
-# close を足すときの本当の危険は、close 行が発火として数えられて**空白検出が黙って壊れる**ことである。
-# 計器を足したつもりで計器を壊す型は、この repo が既に2度踏んでいる。だから両方向を覆う。
-L2="$T/memory/rounds.md"
-: > "$L2"
-# 12時間間隔の open を2本置く（正常な発火）。close をまだ書かない状態。
-now=$(date -u +%s)
-printf -- '- `x` epoch=%s 発火A\n' "$((now-43200))" >> "$L2"
-printf -- '- `y` epoch=%s 発火B\n' "$now" >> "$L2"
-out=$("$T/bin/round" gaps 2>&1)
-grep -q '見落とした発火は無い' <<<"$out"; check $? "close 行が無いとき gaps は正常（12時間間隔を空白と誤検出しない）"
-# ここに close 行を足す。**発火として数えられたら間隔が半分に見え、空白検出が壊れる。**
-printf -- '- `z` epoch=%s close dur=0h5m elapsed_s=300 締め\n' "$((now+300))" >> "$L2"
-out=$("$T/bin/round" gaps 2>&1)
-# 注意: この1件は煙感知器であって検出器ではない。変異テストで確認したところ、
-# gaps から close 除外を外しても**これは通ってしまう**（close 行が増えても間隔が広がらないので
-# 空白判定には出ない）。実際に壊れを捕まえるのは次の「件数」の1件である。
-# 通ることだけを確かめるテストは、間違った理由で通る。どちらが検出器かを明記しておく。
-grep -q '見落とした発火は無い' <<<"$out"; check $? "  close 行があっても偽の空白を報告しない（煙感知器）"
-grep -q '記録された発火 2 件' <<<"$out"; check $? "  発火は 2 件のまま（close で二重に数えない／これが検出器）"
-# times は open と close を突き合わせて所要時間を出す
-out=$("$T/bin/round" times 2>&1)
-grep -q '所要' <<<"$out"; check $? "times が所要時間を出す"
-# close は実際に epoch 差を書く。open が無ければ測れないと言って落ちる
-: > "$L2"
-"$T/bin/round" close "対応 open なし" >/dev/null 2>&1; [ $? -ne 0 ]; check $? "  open が無い close は黙って0時間と書かず、失敗する"
-"$T/bin/round" open "テスト" >/dev/null 2>&1
-"$T/bin/round" close "テスト締め" >/dev/null 2>&1; check $? "  open のあとの close は通る"
-grep -q 'close dur=' "$L2"; check $? "  close は所要時間つきの行を書く"
-
-echo "K. 外向き文書 — README が現行の稼働構成を偽っていないか"
-# 2026-09-02 の第3回診断「出来ていない点2」。README は 08-31 12:51 を最後に更新されず、
-# その45分後に構成が変わった（束ね方式 → 発火ごとの新規セッション）後も、3回の発火を経て古いままだった。
-# 本人は同じ回に PR 本文の同種の誤りを「オーナーが読む場所に既知の誤りを残さない」と言って直しており、
-# **隣のファイルに同じ論理を適用していなかった。** 同じ指摘を2回の診断で受けている以上、
-# 意志では守れないことが確定している。だから構造で検出する。
-# 注: このテストだけは足場（$T）ではなく実物（$SRC）を見る。文書の陳腐化は実物にしか起きない。
-sec=$(awk '/^## 現在の稼働構成/{f=1;next} f&&/^### /{exit} f' "$SRC/README.md")
-[ -n "$sec" ]; check $? "README に「現在の稼働構成」節がある"
-grep -q '発火のたびに新しい子セッション' <<<"$sec"; check $? "  現行方式（発火ごとの新規セッション）を述べている"
-! grep -q '常駐ワーカーを起こす' <<<"$sec"; check $? "  旧方式（persistent_session_id の束ね）を現行として書いていない"
+echo "K. 外向き文書 — README の現行構成が実態から腐っていないか"
+# なぜこれがあるか:
+#   README は git の中にあるのに、2回続けて現実を偽った。08-31 12:51 に書き直した45分後に
+#   構成が変わり、以後3回の発火を経ても誰も直さなかった。メンター第2回・第3回で同じ指摘を受けている。
+#   **同じ指摘を2度受けた時点で、意志では守れないことが確定している。だから構造に落とす。**
+#   2026-09-02 に public になったので、この腐りは外から読める誤情報になった。
+readme="$SRC/README.md"; infra="$SRC/memory/INFRA.md"
+[ -f "$readme" ]; check $? "README.md が存在する"
+# 「現在の稼働構成」節だけを切り出す。歴史として残した旧方式の記述は対象外にする。
+cur=$(awk '/^## 現在の稼働構成/{f=1;next} /^###? /{if(f)exit} f' "$readme")
+[ -n "$cur" ]; check $? "  「現在の稼働構成」節を抽出できる"
+# 旧方式（束ね）の語が現行の構成表に残っていたら落とす。歴史節に出るのは正しいので節を限定している。
+! grep -qE '常駐ワーカー|永続セッション' <<<"$cur"
+check $? "  現行構成の節に旧方式（常駐ワーカー/永続セッション）が書かれていない"
+# 構成表の cron が、実際に空白検出が使っている間隔と一致するか。
+# 最初はこれを「INFRA.md に同じ文字列があるか」で書いた。**通ったが、バグを捕まえられなかった。**
+# INFRA.md は追記専用なので、過去の `44 * * * *` も永久に残っている。どんな古い cron を
+# README に書いても「INFRA のどこかにある」で通ってしまう。
+# 追記専用のファイルは、grep の対象としては「何でも肯定する計器」である。
+# だから文書ではなく、道具が持っている数値（bin/round の DEFAULT_INTERVAL_H）に突き合わせる。
+cron=$(grep -oE '44 [0-9*/]+ [0-9*/]+ [0-9*/]+ [0-9*/]+' <<<"$cur" | head -1)
+[ -n "$cron" ]; check $? "  現行構成の節に cron が書かれている"
+hf=$(awk '{print $2}' <<<"$cron")            # 時フィールド。*/12 なら 12 時間おき、* なら毎時
+case "$hf" in */*) rh="${hf#*/}";; '*') rh=1;; *) rh=24;; esac
+ih=$(grep -oE '^DEFAULT_INTERVAL_H=[0-9]+' "$SRC/bin/round" | cut -d= -f2)
+[ -n "$ih" ]; check $? "  bin/round が期待間隔の定数を持っている"
+[ "$rh" = "$ih" ]; check $? "  README の cron($cron)が round の期待間隔(${ih}h)と一致する"
 
 echo
 echo "── 結果: 成功 $pass / 失敗 $fail"

@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
 # セッションを終える手順を1コマンドにまとめる。
 # 手順が複数あると必ずどれかを飛ばす。飛ばす余地を構造から消す。
-#   ./bin/checkpoint "ログ見出し" "ログ本文"
+#   ./bin/checkpoint "ログ見出し" "ログ本文" <+|-> "密度の根拠"
+#
+# 第3引数以降は 2026-09-02 追加。`bin/round close` を締めの経路に組み込むためのもの。
+# 手で叩く手順にすると必ず飛ばす（それがこのスクリプトの存在理由そのものである）。
+# 印は + が濃い回、- が薄い回。判定基準は .claude/rules/autonomous-loop.md「薄い回の定義」。
 source "$(dirname "$0")/_common.sh"
 
 BRANCH="claude/autonomous-ai-agent-design-jv7jv6"
-title="${1:?usage: checkpoint <log-title> <log-body>}"
+title="${1:?usage: checkpoint <log-title> <log-body> [+|-] [密度の根拠]}"
 body="${2:-}"
+mark="${3:-}"
+mark_note="${4:-}"
 if [ -z "$body" ]; then
   if [ ! -t 0 ]; then body="$(cat)"; else
     echo "本文がない。第2引数か標準入力で渡せ。" >&2; exit 2; fi
@@ -15,11 +21,16 @@ fi
 echo "── 1/5 ログを記録"
 "$ROOT/bin/log" "$title" "$body"
 
-echo "── 2/5 この回の所要時間を台帳に閉じる"
-# 「毎回わざわざ叩く道具は、いずれ叩かれなくなる」（H005）。だから経路上に置く。
-# round close は open との差＝この回が何時間走ったかを書く。次の自分の recall に自動で出る。
-# 失敗しても締めは止めない。所要時間は記録であって、記憶の固定より優先はしない。
-"$ROOT/bin/round" close "checkpoint: $title" || echo "  （所要時間は記録できなかった。締めは続行する）"
+echo "── 2/5 この回の密度を台帳に残す"
+# 所要時間と密度を残さない限り、規則の停止条件（薄い回が3回連続）は参照する量を持たない。
+# 印を省いても止めはしない。**だが省いた回は「?」として残り、薄い回として数えられる。**
+# 黙って通すと、いちばん自分に不利な条文だけが静かに空文化する。
+if [ -n "$mark" ]; then
+  "$ROOT/bin/round" close "$mark" "${mark_note:-（根拠の記載なし。規則により薄い回として扱う）}" || exit 1
+else
+  echo "  >> 密度の印が無い。第3引数に + か - を渡せ（第4引数に根拠）。"
+  echo "  >> 今回は未クローズのまま進む。この回は密度を数えられない回として残る。"
+fi
 
 echo "── 3/5 STATE.md が実際に更新されたかを確認"
 # mtime で見てはいけない。clone すると全ファイルの mtime が clone 時刻になり、
