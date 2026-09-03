@@ -383,6 +383,77 @@ done
 [ -z "$missing" ]; check $? "  memory/ の全記憶ファイルが README に載っている（漏れ:${missing:-なし}）"
 
 echo
+echo "L. 停止条件が実際に発動できるか（2026-09-03 追加）"
+# **これまで一度も発動できなかった。** gaps は密度の連続を台帳の末尾から遡って数えるが、
+# gaps を呼ぶのは bin/recall だけで、recall は round open の**直後**に走る。
+# つまり末尾は必ず「いま走っている回」（mark=?）であり、遡りはそこで必ず切れていた。
+# 薄い回を何回続けても停止条件は沈黙する。参照する量を作った（第3回診断の宿題）だけでは足りず、
+# **読む側が末尾で必ず躓く形になっていた。** 計器を足して、計器が読まれない形にしていた。
+ledger() { printf '# 発火台帳\n' > "$L"; }
+row() { # row <連番> <印|open> [根拠]
+  local e=$((1788000000 + $1 * 43200))
+  printf '\n- `R%s UTC / R%s JST` epoch=%s 定期発火\n' "$1" "$1" "$e" >> "$L"
+  [ "$2" = open ] && return 0
+  printf '  close `C%s UTC / C%s JST` elapsed=0.2h mark=%s for=%s %s\n' \
+    "$1" "$1" "$2" "$e" "${3:-根拠}" >> "$L"
+}
+
+# 検出器。ここが落ちなければ、この節は何も守っていない
+ledger; row 1 -; row 2 -; row 3 -; row 4 open
+out=$("$T/bin/round" gaps 12 2>&1)
+grep -q '薄い回が 3 回連続' <<<"$out"
+check $? "薄い回3連続は、いま走っている回が末尾にあっても停止条件を出す"
+
+# 煙感知器。「常に出す」実装でも上が通ってしまうので、逆向きを固定する
+ledger; row 1 +; row 2 +; row 3 +; row 4 open
+out=$("$T/bin/round" gaps 12 2>&1)
+grep -q '薄い回が' <<<"$out"; [ $? -ne 0 ]
+check $? "  濃い回が続いている間は停止条件を出さない"
+
+# 上の2件は、末尾を起点から外す処理を戻す変異では**どちらも落ちない。**
+# 「?」を薄い回と数える規則が入ったので、末尾を数に入れても連続は 3 に届いてしまうためである。
+# つまり上の2件は「元の欠陥の再発」は捕まえるが、**末尾の扱いそのものは固定していない。**
+# 末尾を数に入れた実装は、こんどは**1回早く**停止条件を出す（偽陽性）。そちらで固定する。
+ledger; row 1 +; row 2 -; row 3 -; row 4 open
+out=$("$T/bin/round" gaps 12 2>&1)
+grep -q '薄い回が' <<<"$out"; [ $? -ne 0 ]
+check $? "  いま走っている回を薄い回に数え、1回早く停止条件を出すことがない"
+
+# 締めを飛ばした回は「濃かった証拠を1つも残さずに終わった回」である。薄い回と数える（厳格化）
+ledger; row 1 -; row 2 -; row 3 open; row 4 open
+out=$("$T/bin/round" gaps 12 2>&1)
+grep -q '薄い回が 3 回連続' <<<"$out"
+check $? "  締めを飛ばした回は薄い回として連続に数える"
+grep -q '締めを飛ばした回が 1 件' <<<"$out"
+check $? "  締めを飛ばした回を、いま走っている回と混ぜずに数える"
+
+# close 機構より前の回は原理的に閉じられない。毎回警告し続ければ、計器は読まれなくなる
+# 印を持たない古い回を薄い回として遡ると、**過去の1件だけで連続3件に届いてしまう。**
+# だから薄い回を1件だけ挟んだ形で固定する（濃い回を挟むと境界を外しても連続が切れて落ちない）。
+ledger; row 1 open; row 2 open; row 3 -; row 4 open
+out=$("$T/bin/round" gaps 12 2>&1)
+grep -q '薄い回が' <<<"$out"; [ $? -ne 0 ]
+check $? "  close 機構より前の回を薄い回の連続に数えない"
+grep -q 'close 機構より前の回' <<<"$out"
+check $? "  閉じられない過去は、警告ではなく事実として区別して出す"
+
+# times は 2026-09-02 から recall に呼ばれていたが、実装が無く exit 2 していた。
+# recall 側の `2>/dev/null || echo "(所要時間をまだ読めない)"` が、**壊れた節を良性に見せていた。**
+ledger; row 1 +; row 2 +; row 3 open
+out=$("$T/bin/round" times 2>&1)
+check $? "round times が実装されている（recall が1日以上、無い副命令を呼んでいた）"
+grep -q '最長' <<<"$out"; check $? "  全期間の外れ値を出す（gaps の直近5件では消える）"
+
+# 型のほうを塞ぐ。実物どうしを突き合わせ、recall が呼ぶ副命令が全部実装されているかを見る。
+# 手で直すだけなら、次に副命令を増やしたときまた同じ穴が開く。
+badsub=""
+for s in $(grep -oE '"\$ROOT/bin/round" [a-z]+' "$SRC/bin/recall" | awk '{print $2}' | sort -u); do
+  grep -qE "^  $s\)" "$SRC/bin/round" || badsub="$badsub $s"
+done
+[ -z "$badsub" ]
+check $? "  recall が呼ぶ round の副命令が全部実装されている（未実装:${badsub:-なし}）"
+
+echo
 echo "── 結果: 成功 $pass / 失敗 $fail"
 if [ "$fail" -gt 0 ]; then
   echo ">> 壊れている。直すまで本番で使うな。"

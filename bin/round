@@ -4,6 +4,7 @@
 #   ./bin/round close <+|-> 根拠   締めに呼ぶ。所要時間と、その回が濃かったか薄かったかを残す
 #   ./bin/round list               記録された発火を並べる
 #   ./bin/round gaps [時間]        空白＝見ていない発火と、直近の回の密度を出す
+#   ./bin/round times              全期間の所要時間（最長・最短・平均）。外れ値を5回で失わないため
 #
 # なぜ「起きた瞬間」なのか。
 # 締めのときに書く設計は、その回が途中で死ぬと1行も残さない。2026-08-30 に4回それで全損した。
@@ -192,18 +193,106 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" -- "$F" >/dev/null 2>&1; 
         printf "\n  直近の回（所要時間と密度）\n"
         s = n - 4; if (s < 1) s = 1
         for (i = s; i <= n; i++) printf "    %s  %6s  %s  %s\n", L[i], D[i], M[i], substr(T[i], 1, 46)
+
+        # **`?` は3つの別の状態を1文字に潰していた。** これが停止条件を殺していた原因である。
+        #   (a) close 機構より前に開かれた回 — 印が無く、**原理的にもう閉じられない**
+        #   (b) 締めを飛ばした／途中で死んだ回 — 本物の信号。数えるべきもの
+        #   (c) いま走っている回 — 正常。まだ閉じる番が来ていないだけ
+        # 3つを同じ「未クローズ」として毎回数えると、計器は永久に警告を出し続けて読まれなくなる。
+        # 分けて数える。**未知を既定値に潰さない**（memory/OPERATING.md §3 と同じ型）。
+
+        # 密度が読める最初の回＝close 機構が入った世代の始まり。ここより前が (a)。
+        gen = 0
+        for (i = 1; i <= n; i++) if (M[i] != "?") { gen = i; break }
+        if (gen == 0) gen = n + 1
+
+        # **末尾の1件は (c)「いま走っている回」である。連続の起点から外す。**
+        # gaps を呼ぶのは bin/recall だけで、recall は round open の直後に走る。
+        # つまり末尾は**必ず**未クローズであり、そこから遡ると連続は初回で必ず切れる。
+        # 2026-09-03 に実測して確認した。薄い回を3回続けても停止条件は一度も出ない。
+        # 「薄い回が3回連続したら止まる」は、計器を足したあとも**発動できないままだった。**
+        # 参照する量を作っただけでは足りない。**読む側が末尾で必ず躓く形になっていた。**
+        last = n
+        if (M[n] == "?") last = n - 1
+
         thin = 0
-        for (i = n; i >= 1 && i > n - 3; i--) if (M[i] == "-") thin++; else break
+        for (i = last; i >= gen && i > last - 3; i--) {
+          if (M[i] == "-") thin++
+          # (b) は薄い回と数える。**濃かった証拠を1つも残さずに終わった回である。**
+          # 規則「薄い回の定義」は外向きの成果物・決着した仮説・修正した欠陥が全部ゼロなら薄い、
+          # と定めており、締めを飛ばした回はそのどれも申告していない。緩和ではなく厳格化にあたる。
+          else if (M[i] == "?") thin++
+          else break
+        }
         if (thin >= 3) {
           printf "\n  ** 薄い回が %d 回連続している。**\n", thin
           printf "  .claude/rules/autonomous-loop.md の停止条件に該当する。\n"
           printf "  頻度を下げるか一時停止し、判断と理由を STATE.md と行動ログに書くこと。\n"
         }
-        unclosed = 0
-        for (i = 1; i <= n; i++) if (M[i] == "?") unclosed++
-        if (unclosed > 0) printf "\n  (未クローズの回が %d 件ある。close を飛ばした回は密度を数えられない)\n", unclosed
+
+        skipped = 0
+        for (i = gen; i <= last; i++) if (M[i] == "?") skipped++
+        if (skipped > 0)
+          printf "\n  ** 締めを飛ばした回が %d 件ある。密度を申告せずに終わった回である **\n", skipped
+        legacy = gen - 1
+        if (legacy > 0)
+          printf "\n  (うち %d 件は close 機構より前の回。もう閉じられないので連続には数えない)\n", legacy
       }
     ' "$F"
     ;;
-  *) echo "usage: round {open|close|list|gaps}" >&2; exit 2 ;;
+  times)
+    # bin/recall は 2026-09-02 からこの副命令を呼んでいたが、**実装が存在しなかった。**
+    # `*)` の usage に落ちて exit 2 し、recall 側の `2>/dev/null || echo` が
+    # 「(所要時間をまだ読めない)」という**良性に読める文面**で覆っていた。
+    # 壊れた節が、まだ準備が整っていないだけの節に見えていた。1日以上そのままだった。
+    # 「原因不明」を緊急事態の既定値にしないのと対になる話で、こちらは逆向きの誤り：
+    # **壊れているものを、良性の既定値に落としていた。**
+    #
+    # gaps の「直近の回」は5件しか出さない。**外れ値は5回で視界から消える。**
+    # 17.5時間 commit ゼロで走った回のような記録は、消えては困る種類の記録である。
+    # だから times は台帳の全期間を見て、最長・最短・平均と、測れていない回の数を出す。
+    awk '
+      /^- `.*epoch=/ {
+        lab = $0
+        if (match(lab, /`[^`]+`/)) lab = substr(lab, RSTART+1, RLENGTH-2)
+        sub(/ UTC.*/, "", lab)
+        n++; L[n] = lab; D[n] = ""
+        if (match($0, /epoch=[0-9]+/)) IDX[substr($0, RSTART+6, RLENGTH-6)] = n
+        next
+      }
+      /^  close `/ {
+        if (n == 0) next
+        # for= があればその open に付ける。無い古い行は直近の open に落とす（gaps と同じ規則）。
+        k = n
+        if (match($0, /for=[0-9]+/)) {
+          e = substr($0, RSTART+4, RLENGTH-4)
+          if (e in IDX) k = IDX[e]
+        }
+        # elapsed=?h は「open が辿れなかった回」であり 0 ではない。数値の形だけを拾う。
+        if (match($0, /elapsed=[0-9.]+h/)) D[k] = substr($0, RSTART+8, RLENGTH-9)
+        next
+      }
+      END {
+        if (n == 0) { print "  (発火の記録なし)"; exit }
+        m = 0; sum = 0; hi = -1; lo = -1
+        for (i = 1; i <= n; i++) {
+          if (D[i] == "") continue
+          v = D[i] + 0; m++; sum += v
+          if (hi < 0 || v > hi) { hi = v; hiL = L[i] }
+          if (lo < 0 || v < lo) { lo = v; loL = L[i] }
+        }
+        if (m == 0) {
+          printf "  所要時間を測れた回は 0 件（記録された発火 %d 件）\n", n
+          print  "  close を通った回がまだ無い。回の内側の長さは誰も見ていない状態である。"
+          exit
+        }
+        printf "  測れた回 %d / %d 件。平均 %.1fh\n", m, n, sum / m
+        printf "    最長 %5.1fh  %s\n", hi, hiL
+        printf "    最短 %5.1fh  %s\n", lo, loL
+        if (n - m > 0)
+          printf "    (%d 件は所要時間を持たない。close を通らなかった回)\n", n - m
+      }
+    ' "$F"
+    ;;
+  *) echo "usage: round {open|close|list|gaps|times}" >&2; exit 2 ;;
 esac
