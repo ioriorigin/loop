@@ -77,9 +77,24 @@ echo "── 5/5 push"
 # memory/OPERATING.md §1a-2 に従って手でブランチを移していたからにすぎない。
 # **手順で覆っている欠陥は、手順を飛ばした回に必ず出る。** preflight と round open と
 # ここの3つが、同じ形（HEAD → 作業ブランチ）で押すこと。bin/selftest I0 節が固定している。
+# 旧ブランチ（起動の入口）へも同じ commit を送る。**push が通った後にだけ行う。**
+# 失敗しても締めは落とさない。ここは保険であって、記憶の本体は $BRANCH にある。
+# fast-forward でないときは押さない（--force を使わない）。無関係な履歴を流し込まないため。
+forward_legacy() {
+  [ -n "${LEGACY_ENTRY_BRANCH:-}" ] || return 0
+  [ "$LEGACY_ENTRY_BRANCH" != "$BRANCH" ] || return 0
+  if git -C "$ROOT" push origin "HEAD:refs/heads/$LEGACY_ENTRY_BRANCH" >/dev/null 2>&1; then
+    echo "  ok — 旧ブランチ（起動の入口）も同じ地点へ進めた: $LEGACY_ENTRY_BRANCH"
+  else
+    echo "  >> 旧ブランチへ転送できなかった: $LEGACY_ENTRY_BRANCH"
+    echo "     古い名前で起動した回は、この締めを見られない。ASKS.md A-005 を急げ。"
+  fi
+}
+
 for i in 1 2 3 4; do
   if git -C "$ROOT" push origin "HEAD:refs/heads/$BRANCH" 2>&1 | tail -1; then
     echo "  ok — 記憶を外部に固定した"
+    forward_legacy
     exit 0
   fi
   w=$(( 2 ** i )); echo "  push 失敗。${w}秒後に再試行 ($i/4)"; sleep "$w"

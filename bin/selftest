@@ -186,6 +186,65 @@ printf '# 現在地\nさらに書き換えた。\n' > "$G/memory/STATE.md"
 grep -q 'mark=+' "$G/memory/rounds.md" 2>/dev/null
 check $? "  密度の印を渡すと checkpoint が台帳に close 行を残す"
 rm -rf "$G"
+echo "H2. checkpoint — 旧ブランチ（起動の入口）へ同じ地点を転送するか"
+# トリガーのプロンプトが古いブランチ名を pull し続ける間、旧ブランチが起動の入口になる。
+# **手で押す前提にすると必ず飛ばす**（H005: 毎回わざわざ叩く道具は、いずれ叩かれなくなる）。
+# だから checkpoint の経路に載せた。載せた以上、載っていることをテストで固定する。
+# venture/ASKS.md A-005 が片付いたら、この節ごと消してよい。
+G2="$(mktemp -d)"; B2="$(mktemp -d)"
+mkdir -p "$G2/bin" "$G2/memory/notes" "$G2/memory/log"
+cp "$SRC"/bin/{_common.sh,log,note,hypo,recall,checkpoint,round} "$G2/bin/"; chmod +x "$G2"/bin/*
+LEGACY="$(sed -n 's/^LEGACY_ENTRY_BRANCH="\(.*\)"$/\1/p' "$SRC/bin/_common.sh")"
+[ -n "$LEGACY" ]; check $? "_common.sh が旧ブランチ名を定義している"
+git init -q --bare "$B2/remote.git"
+git -C "$G2" init -q -b "$WORK_BRANCH"
+git -C "$G2" remote add origin "$B2/remote.git"
+printf '# 現在地\n初期状態。\n' > "$G2/memory/STATE.md"
+printf '# 台帳\n\n- `t` epoch=1788000000 x\n' > "$G2/memory/rounds.md"
+git -C "$G2" add -A >/dev/null 2>&1
+git -C "$G2" -c user.name=t -c user.email=t@t commit -qm init >/dev/null 2>&1
+git -C "$G2" push -q origin "HEAD:refs/heads/$LEGACY" >/dev/null 2>&1
+printf '# 現在地\n書き換えた。\n' > "$G2/memory/STATE.md"
+outf=$("$G2/bin/checkpoint" "見出し" "本文" + "根拠" 2>&1)
+head_sha=$(git -C "$G2" rev-parse HEAD)
+[ "$(git -C "$G2" ls-remote origin "refs/heads/$WORK_BRANCH" | awk '{print $1}')" = "$head_sha" ]
+check $? "  作業ブランチへ押している（記憶の本体）"
+[ "$(git -C "$G2" ls-remote origin "refs/heads/$LEGACY" | awk '{print $1}')" = "$head_sha" ]
+check $? "  旧ブランチも同じ地点へ進んでいる（古い名前で起動した回が締めを見られる）"
+grep -q '旧ブランチ' <<<"$outf"; check $? "  転送したことを黙らずに言う"
+
+# **--force を使っていないこと。** 旧ブランチに無関係な履歴が乗っている状況で
+# 押し切ると、記憶の入口を上書きする。fast-forward でないなら押さないのが正しい。
+#
+# **ここは条件の作り方が肝である。** 作業ブランチ側も ff でない状態にすると、
+# checkpoint は 5/5 の push で先に落ち、**転送の分岐に一度も到達しないまま**
+# 「旧ブランチは進んでいない」が成立してしまう。それは別の理由で通ったテストであり、
+# --force の有無を何も測っていない（この節を書いた初版が実際にそうなっていた）。
+# だから **作業ブランチは ff のまま、旧ブランチだけを無関係な履歴へずらす。**
+X="$(mktemp -d)"
+git -C "$X" init -q -b tmp
+printf 'x\n' > "$X/x.txt"; git -C "$X" add -A >/dev/null 2>&1
+git -C "$X" -c user.name=t -c user.email=t@t commit -qm orphan >/dev/null 2>&1
+git -C "$X" remote add origin "$B2/remote.git"
+git -C "$X" push -q --force origin "HEAD:refs/heads/$LEGACY" >/dev/null 2>&1
+legacy_before=$(git -C "$X" ls-remote origin "refs/heads/$LEGACY" | awk '{print $1}')
+# **2回目の締めには2回目の回が要る。** 直前の checkpoint が既に close 行を書いており、
+# 開いていない回を閉じようとすると checkpoint は push まで到達せずに落ちる。
+# それに気づかずに書くと、rc も ref も「別の理由で」動かないまま通ってしまう。
+"$G2/bin/round" open "2回目" >/dev/null 2>&1
+printf '# 現在地\nさらに書き換えた。\n' > "$G2/memory/STATE.md"
+outf2=$("$G2/bin/checkpoint" "見出し" "本文" + "根拠" 2>&1); rc2=$?
+head2=$(git -C "$G2" rev-parse HEAD)
+[ "$rc2" -eq 0 ]; check $? "  旧ブランチへ押せなくても締めは落ちない（保険であって本体ではない）"
+[ "$(git -C "$G2" ls-remote origin "refs/heads/$WORK_BRANCH" | awk '{print $1}')" = "$head2" ]
+check $? "    作業ブランチへの push は成功している（＝転送の分岐に到達している）"
+legacy_after=$(git -C "$X" ls-remote origin "refs/heads/$LEGACY" | awk '{print $1}')
+[ "$legacy_before" = "$legacy_after" ]
+check $? "  ff でない履歴を旧ブランチへ流し込まない（--force を使っていない）"
+grep -q '転送できなかった' <<<"$outf2"; check $? "  押せなかったことを黙らずに言う"
+rm -rf "$X"
+rm -rf "$G2" "$B2"
+
 echo "J. round — 見ていない発火を検出できるか"
 # 停止条件のカウンタが手動だと、途中で死んだ回は数えられず規定が素通りする。
 # 台帳に空白が空いたことを機械が言えなければ、この仕組みは無いのと同じ。
