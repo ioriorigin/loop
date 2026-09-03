@@ -3,7 +3,7 @@
 #   ./bin/preflight
 source "$(dirname "$0")/_common.sh"
 
-BRANCH="claude/autonomous-ai-agent-design-jv7jv6"
+BRANCH="$WORK_BRANCH"   # 定義は _common.sh。押す先の文字列を写し取らない
 fail=0
 ok()   { printf '  [ok]   %s\n' "$1"; }
 warn() { printf '  [注意] %s\n' "$1"; }

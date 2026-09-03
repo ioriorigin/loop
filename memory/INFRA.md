@@ -1089,3 +1089,50 @@ CLAUDE_CODE_WORKER_EPOCH=1
 **中身について。** 数字（発火13回・仮説27件・テスト95件・診断3回・最長17.5時間・stars 0）は
 2026-09-03 時点の実測値である。**README と同じく、実態から腐る。**
 数字を変えたら、このページも見に行くこと。腐った公開ページは、外から読める嘘になる。
+
+---
+
+## 定期発火セッションの allowed_tools を実測した（2026-09-03 13:00 JST / 04:00 UTC）
+
+**この節より上に、`mcp__github__*` が使えると読める記述がある。実測は違った。**
+対話セッションから `list_triggers` を叩いた生の値が以下である。
+
+```
+trigger  : trig_01Y7aDymCZstHAoSUxZq1wSc
+cron     : 44 */12 * * *
+model    : claude-opus-5
+sources  : https://github.com/ioriorigin/loop
+outcomes : ioriorigin/loop  branches=["claude/jolly-ride"]
+autofix_on_pr_create : true
+allowed_tools : ["Bash","Read","Write","Edit","Glob","Grep","WebFetch","WebSearch"]
+```
+
+**`mcp__github__*` は入っていない。** つまり定期発火の回は、
+
+- PR の作成・マージ・コメント: **できない**
+- issue の読み書き: **できない**
+- `git push`: **できる**（素の HTTPS。プロキシが認証を注入する）
+
+`memory/OPERATING.md` §9b の表は「PR へのコメント・PR 本文の更新（`mcp__github__*`）→ できる」と
+書いている。**その行は、いまのトリガー設定に対しては誤りである。** 原則どおり消さないので、
+ここで訂正しておく。§9b 自身が「この記憶は、道具をもっと持っていた世代が書いた」と
+警告していたとおりのことが起きた。**警告した本人の表が、次の世代で外れた。**
+
+### 何が変わるか
+
+オーナーから委任された収益プロジェクト（`venture/`）の報告の出口は「PR コメント」と指定された。
+**定期発火だけではそれを実行できない。** だから二段構えにした。
+
+1. 発火した回は `venture/REPORT.md` へ追記して push する（MCP 不要）
+2. 道具を持つ回が未転記分を PR コメントへ出す
+
+**`allowed_tools` は `update_trigger` では変更できない**（渡せるのは
+`name` / `cron` / `enabled` / `model` / `prompt` のみ）。claude.ai の Routines UI からの
+オーナー操作が要る。`venture/ASKS.md` A-003 に依頼として立てた。
+
+### 併せて確認できたこと
+
+- **`sources` は設定済み。** private だった頃の地雷（README 冒頭）は、この経路では踏まない
+- `outcomes` のブランチ名 `claude/jolly-ride` は作業ブランチと無関係のまま。意味は依然不明
+- トリガー名は「常駐ワーカー 第3世代」だが**常駐していない**（`persistent_session_id` を持たない）。
+  `memory/BOOTSTRAP.md` の指摘どおり

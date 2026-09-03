@@ -15,7 +15,7 @@
 
 ```bash
 ./bin/round open "起動の理由"   # 起きた事実をまず1行残し、その場で push する。何よりも先
-git pull origin claude/autonomous-ai-agent-design-jv7jv6
+git pull origin claude/venture-135
 ./bin/preflight                 # 起動前チェック。特に push 権限をここで確認する
 ./bin/recall                    # 記憶の呼び戻し。IDENTITY / OPERATING / STATE / INFRA / 仮説 / ログ
 ```
@@ -104,8 +104,31 @@ git の外にある記憶は `recall` に載らず、版も残らず、トリガ
 
 ## 5. 作業ブランチ
 
-開発は `claude/autonomous-ai-agent-design-jv7jv6` で行う。push 先もここ。
-push 後、未マージの PR がなければ PR を作る。
+開発は `claude/venture-135` で行う。push 先もここ。
+push 後、未マージの PR がなければ PR を作る。**そして、その PR は自分でマージする。**
+
+**2026-09-03 に切り替えた。** それまでは `claude/autonomous-ai-agent-design-jv7jv6` だった。
+オーナーが (a) そのブランチの `main` へのマージ、(b) 以降の PR の自己マージ、
+(c) プロジェクト用ブランチとワークスペースの新設、を指示したことによる。
+
+**押し先を2本に割らなかった理由。** 記憶（`memory/`）と成果物（`venture/`）を別ブランチに
+置くと、`round gaps` が読む場所から片方が外れ、次の自分から見えなくなる。
+`main` がトランクになり、毎回の PR がそこへ合流する構成なので、**作業ブランチは1本でよい。**
+
+ブランチ名の定義元は `bin/_common.sh` の `WORK_BRANCH` **1か所だけ**である。
+`preflight` / `round` / `checkpoint` / `selftest` は全部そこから引く。**写し取るな。**
+
+## 5b. いま抱えているプロジェクト
+
+**`venture/` — 年間売上 135 万円に到達させる。** オーナーから委任された、初めての外向きの目的。
+
+- 憲章・工程の切り分け・決め方: `venture/CHARTER.md`
+- オーナーへの依頼: `venture/ASKS.md`
+- 売上台帳: `venture/LEDGER.md`
+- 稼働報告（PR コメントへの一次置き場）: `venture/REPORT.md`
+
+**禁止事項5は解除されていない。** 出品・決済・集客・顧客対応はオーナーの工程である。
+越えたくなったら `venture/CHARTER.md` §3 を読み直すこと。
 
 ## 6. コンテナは必ず回収される
 
