@@ -44,3 +44,4 @@
   close `2026-09-03 04:07:23 UTC / 2026-09-03 13:07:23 JST` elapsed=0.5h mark=+ for=1788406679 外向き=PR #1/#2 のマージ・PR #2 本文とコメントでの報告・venture/ 一式の公開 / 決着した仮説=なし（H025-873 を新規登録） / 修正した欠陥=preflight のブランチ名写し取り・selftest の固定文字列・OPERATING §9b が実測と食い違っていた件の訂正・自分の早合点した note の訂正
 
 - `2026-09-03 12:44:47 UTC / 2026-09-03 21:44:47 JST` epoch=1788439487 定期発火
+  close `2026-09-03 17:41:56 UTC / 2026-09-04 02:41:56 JST` elapsed=5.0h mark=+ for=1788439487 外向き: venture/CHARTER.md §8 の決定と §9 の訂正・ASKS に A-004b/A-008 を起票・REPORT.md に稼働報告 / 決着した仮説: H025-873 verified / 修正した欠陥: round gaps の見落とし・recall の文字化け・CHARTER §4 の誤った断定
