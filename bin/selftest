@@ -299,7 +299,11 @@ cp "$Q/memory/rounds.md" "$P/memory/rounds.md"
 mine=$(awk '{print $1}' "$P/.round-current")
 "$P/bin/round" close + "自分の根拠" >/dev/null 2>&1
 grep -q "for=$mine" "$P/memory/rounds.md"; check $? "close は自分の open を指す（for= が一致する）"
-"$P/bin/round" gaps 12 2>&1 | grep -q '自分の根拠'
+# **`| grep -q` で受けない。** grep -q は一致した瞬間に降りてパイプを閉じるので、
+# その後ろでまだ書いている round が SIGPIPE で死に、pipefail が 141 を拾う。
+# 実際 orphans 節を gaps の末尾に足した瞬間、この1件だけが落ちた。**計器ではなく読み方の問題である。**
+outg=$("$P/bin/round" gaps 12 2>&1)
+grep -q '自分の根拠' <<<"$outg"
 check $? "  gaps が自分の回に密度を出す"
 [ "$("$P/bin/round" gaps 12 2>&1 | grep -c '未クローズ)')" = "1" ]
 check $? "  他人の回だけが未クローズとして残る（自分の回に付け替わらない）"
@@ -550,6 +554,88 @@ for s in $(grep -oE '"\$ROOT/bin/round" [a-z]+' "$SRC/bin/recall" | awk '{print 
 done
 [ -z "$badsub" ]
 check $? "  recall が呼ぶ round の副命令が全部実装されている（未実装:${badsub:-なし}）"
+
+echo
+echo "M. 台帳を書かずに走った回を、git 側から拾えるか（2026-09-03 追加）"
+# gaps は台帳しか読まない。**1行も書かずに走った回は、原理的に見えない。**
+# 2026-09-03、06:28 と 09:57 に commit を残した回が2つあったのに台帳に open 行が無く、
+# それでも gaps は「見落とした発火は無い」と答えた（間隔 8.6h < 期待 12h で空白にならない）。
+# **自己申告の計器は、申告しなかった回を永久に見落とす。** だから別の帳簿と突き合わせる。
+# commit は、その回が走った動かぬ物証である。
+G="$T/orph"
+mkdir -p "$G/bin" "$G/memory"
+cp "$SRC"/bin/{_common.sh,round} "$G/bin/"; chmod +x "$G"/bin/*
+git -C "$G" init -q >/dev/null 2>&1
+git -C "$G" config user.email t@example.invalid
+git -C "$G" config user.name loop-test
+OL="$G/memory/rounds.md"
+now=$(date -u +%s); base=$((now - 172800))          # 2日前。--since 7日 の窓の内側に置く
+gcommit() { # gcommit <epoch> <メッセージ>
+  printf '%s\n' "$1" >> "$G/f.txt"
+  ( cd "$G" \
+    && export GIT_COMMITTER_DATE="@$1 +0000" GIT_AUTHOR_DATE="@$1 +0000" \
+    && git add -A && git commit -q -m "$2" ) >/dev/null 2>&1
+}
+oled() { printf '# 発火台帳\n' > "$OL"; }
+orow() { # orow <epoch> <elapsed時間|open>
+  printf '\n- `X UTC / X JST` epoch=%s 定期発火\n' "$1" >> "$OL"
+  [ "$2" = open ] && return 0
+  printf '  close `Y UTC / Y JST` elapsed=%sh mark=+ for=%s 根拠\n' "$2" "$1" >> "$OL"
+}
+
+# 検出器。締めた回の窓（close + 余裕1時間）より後に打たれた commit は、台帳を書かなかった回のものである
+oled; orow "$base" 0.2
+gcommit $((base + 100))   "回の中で打った commit"
+gcommit $((base + 20000)) "台帳を書かずに走った回の commit"
+out=$("$G/bin/round" orphans 2>&1)
+grep -q '台帳に1行も書かずに走った回がある' <<<"$out"
+check $? "締めた回の窓の外に commit があれば、台帳を書かなかった回として検出する"
+grep -q '台帳を書かずに走った回の commit' <<<"$out"
+check $? "  どの commit が窓の外なのかを名指しする"
+
+# 煙感知器。「常に鳴る」実装でも上は通ってしまうので、逆向きを固定する
+grep -q '回の中で打った commit' <<<"$out"; [ $? -ne 0 ]
+check $? "  窓の内側の commit を巻き込まない"
+
+# **初版が実際に踏んだ欠陥の再発防止。**
+# 未クローズの回の窓を無限に伸ばす実装だと、大昔の締め忘れが1件あるだけで以後すべてを覆う。
+# 初版はそれで 06:28 / 09:57 の回を取り逃した（検出器は通るのに、本物は見つからない）。
+# 未クローズの回の窓は**次の open まで**で切る。いま走っている回（最後の open）だけが無限でよい。
+rm -rf "$G/.git" "$G/f.txt"; git -C "$G" init -q >/dev/null 2>&1
+git -C "$G" config user.email t@example.invalid; git -C "$G" config user.name loop-test
+oled; orow "$base" open; orow $((base + 40000)) 0.2
+gcommit $((base + 80000)) "締め忘れの後ろに隠れた commit"
+out=$("$G/bin/round" orphans 2>&1)
+grep -q '締め忘れの後ろに隠れた commit' <<<"$out"
+check $? "  過去の締め忘れが1件あっても、その後ろの回を覆い隠さない"
+
+# 台帳より前の commit は、窓が存在しない時代のものである。毎回鳴らす計器は読まれなくなる
+rm -rf "$G/.git" "$G/f.txt"; git -C "$G" init -q >/dev/null 2>&1
+git -C "$G" config user.email t@example.invalid; git -C "$G" config user.name loop-test
+oled; orow "$base" 0.2
+gcommit $((base - 20000)) "台帳が始まる前の commit"
+out=$("$G/bin/round" orphans 2>&1)
+grep -q '台帳が始まる前の commit' <<<"$out"; [ $? -ne 0 ]
+check $? "  台帳より前の commit を、台帳を書かなかった回として鳴らさない"
+grep -q '台帳より前の commit 1 件' <<<"$out"
+check $? "    ただし件数は事実として出す（黙って捨てない）"
+
+# gaps から自動で呼ばれること。**呼ばれない計器は無いのと同じ**（L 節と同じ型の失敗を繰り返さない）
+out=$("$G/bin/round" gaps 12 2>&1)
+grep -qE '台帳の外で打たれた commit は無い|台帳に1行も書かずに走った回' <<<"$out"
+check $? "  gaps が orphans を自動で呼ぶ（recall 経由で次の自分の目に必ず入る）"
+
+# 日本語を byte 単位で切ると末尾が化ける。recall が毎回出す文面である
+out=$(printf '日本語テスト' | awk '
+  function utrim(s, n,   t, nxt) {
+    if (length(s) <= n) return s
+    t = substr(s, 1, n); nxt = substr(s, n+1, 1)
+    if (nxt ~ /^[\200-\277]$/) { sub(/[\200-\277]+$/, "", t); sub(/[\300-\367]$/, "", t) }
+    return t
+  }
+  { print utrim($0, 4) }')
+[ "$out" = "日" ]
+check $? "  切り詰めが文字の途中で切らない（gaps / orphans が使う utrim）"
 
 echo
 echo "── 結果: 成功 $pass / 失敗 $fail"

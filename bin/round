@@ -5,6 +5,7 @@
 #   ./bin/round list               記録された発火を並べる
 #   ./bin/round gaps [時間]        空白＝見ていない発火と、直近の回の密度を出す
 #   ./bin/round times              全期間の所要時間（最長・最短・平均）。外れ値を5回で失わないため
+#   ./bin/round orphans [日数]     **台帳に1行も書かずに走った回**を git の commit から拾う（gaps が自動で呼ぶ）
 #
 # なぜ「起きた瞬間」なのか。
 # 締めのときに書く設計は、その回が途中で死ぬと1行も残さない。2026-08-30 に4回それで全損した。
@@ -186,6 +187,19 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" -- "$F" >/dev/null 2>&1; 
     # 回の内側 — 直近の回の所要時間と密度。空白検出と同じ場所に出す。
     # gaps は recall が毎回叩くので、ここに出せば次の自分の目に必ず入る。
     awk '
+      # 日本語を byte 単位で切ると、末尾が文字化けする。**記憶を毎回読む経路の出力である。**
+      # awk は mawk（byte 単位・ロケール非対応）なので、切った先が文字の途中なら、
+      # その文字ごと落とす。切り口が文字境界に一致しているときは何もしない。
+      function utrim(s, n,   t, nxt) {
+        if (length(s) <= n) return s
+        t = substr(s, 1, n)
+        nxt = substr(s, n+1, 1)
+        if (nxt ~ /^[\200-\277]$/) {      # 次の byte が継続 byte ＝ 文字の途中で切った
+          sub(/[\200-\277]+$/, "", t)
+          sub(/[\300-\367]$/, "", t)
+        }
+        return t
+      }
       /^- `.*epoch=/ {
         lab = $0
         if (match(lab, /`[^`]+`/)) lab = substr(lab, RSTART+1, RLENGTH-2)
@@ -213,7 +227,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" -- "$F" >/dev/null 2>&1; 
         if (n == 0) exit
         printf "\n  直近の回（所要時間と密度）\n"
         s = n - 4; if (s < 1) s = 1
-        for (i = s; i <= n; i++) printf "    %s  %6s  %s  %s\n", L[i], D[i], M[i], substr(T[i], 1, 46)
+        for (i = s; i <= n; i++) printf "    %s  %6s  %s  %s\n", L[i], D[i], M[i], utrim(T[i], 46)
 
         # **`?` は3つの別の状態を1文字に潰していた。** これが停止条件を殺していた原因である。
         #   (a) close 機構より前に開かれた回 — 印が無く、**原理的にもう閉じられない**
@@ -260,6 +274,118 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" -- "$F" >/dev/null 2>&1; 
           printf "\n  (うち %d 件は close 機構より前の回。もう閉じられないので連続には数えない)\n", legacy
       }
     ' "$F"
+    # 台帳の外側 — **台帳に1行も書かずに走った回**を git 側から拾う。
+    # gaps 本体は台帳しか読まないので、行を書かなかった回は原理的に見えない。詳細は orphans 節。
+    # `|| true` を付ける理由: 呼び出し側が `| head` や `| grep -q` で受けると
+    # 途中でパイプが閉じ、ここが SIGPIPE で死ぬ。**gaps 本体の出力は既に出し終えている**ので、
+    # それを失敗として伝播させる意味がない（set -e が効いている）。
+    "$0" orphans || true
+    ;;
+  orphans)
+    # **台帳を書かなかった回を、git の履歴から検出する。**
+    #
+    # なぜ要るのか（2026-09-03 実測）。
+    # この日、06:28 UTC と 09:57 UTC に commit を残した回が2つあるのに、
+    # **台帳には open 行が1本も無い。** それでも gaps は「見落とした発火は無い」と答えた。
+    # 期待間隔 12 時間に対して 04:07 の close から 12:44 の open まで 8.6 時間しか空いておらず、
+    # **空白として浮かばなかった**からである。
+    #
+    # つまり gaps は「回と回の間隔」しか見ておらず、**間隔の内側で走った回**を構造的に見落とす。
+    # close を足したとき「回の内側の空白は誰も測っていなかった」と書いたが、
+    # **同じ型の穴がもう1段外側に残っていた。** 台帳は自己申告であり、
+    # **申告しなかった回は、自己申告の計器からは永久に見えない。**
+    #
+    # だから別の帳簿を突き合わせる。**commit は、その回が走った動かぬ物証である。**
+    # 台帳の窓 [open, close+余裕] のどれにも入らない commit があれば、
+    # そこに台帳を書かなかった回が居た。
+    #
+    # 余裕を既定で1時間置く理由: checkpoint の後にもう少しだけ作業する回が実在する
+    # （2026-09-03 04:07 に締めた回が 04:19 に PR をマージしている）。
+    # **良性の尾を異常と読むと、計器は読まれなくなる。** preflight で学んだのと同じ話である。
+    days="${2:-7}"
+    marg="${3:-3600}"
+    # git が無い／リポジトリの外なら、突き合わせる帳簿が無いだけである。**異常ではない。**
+    # ここで失敗させると、gaps を呼んだ側まで巻き添えで非ゼロ終了する
+    # （_common.sh の set -e / pipefail が効いている。selftest の非 git 足場で実際に落ちた）。
+    # **計器を足したせいで、足された側が壊れる**のは、いちばん割に合わない失敗である。
+    if ! git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+      echo "  (git 管理外。台帳の外の commit は突き合わせられない)"
+      exit 0
+    fi
+    win=$(mktemp) || exit 1
+    trap 'rm -f "$win"' EXIT
+    awk '
+      /^- `.*epoch=/ {
+        if (match($0, /epoch=[0-9]+/)) { e = substr($0,RSTART+6,RLENGTH-6)+0; n++; O[n]=e; IDX[e]=n; E[n]=-1 }
+        next
+      }
+      /^  close `/ {
+        if (n == 0) next
+        k = n
+        if (match($0, /for=[0-9]+/)) { f = substr($0,RSTART+4,RLENGTH-4); if (f in IDX) k = IDX[f] }
+        if (match($0, /elapsed=[0-9.]+h/)) {
+          d = substr($0,RSTART+8,RLENGTH-9) + 0
+          c = O[k] + d*3600
+          if (c > E[k]) E[k] = c      # 二重 close がある回は、いちばん遅い締めを採る
+        }
+        next
+      }
+      END { for (i = 1; i <= n; i++) printf "%d %d\n", O[i], E[i] }
+    ' "$F" > "$win"
+    git -C "$ROOT" log --format='%ct %h %s' --since="$days days ago" 2>/dev/null \
+    | awk -v marg="$marg" -v days="$days" '
+        # gaps 側と同じ理由（mawk は byte 単位）。文字の途中で切らない。
+        function utrim(s, n,   t, nxt) {
+          if (length(s) <= n) return s
+          t = substr(s, 1, n)
+          nxt = substr(s, n+1, 1)
+          if (nxt ~ /^[\200-\277]$/) {
+            sub(/[\200-\277]+$/, "", t)
+            sub(/[\300-\367]$/, "", t)
+          }
+          return t
+        }
+        NR == FNR { O[FNR]=$1; E[FNR]=$2; nw=FNR; next }
+        {
+          t = $1 + 0
+          # 台帳が始まる前の commit は、そもそも窓が存在しない時代のものである。
+          # gaps が close 機構より前の回を連続に数えないのと同じ理由で、ここでも数えない。
+          # **もう開きようがない回を毎回鳴らす計器は、読まれなくなる。**
+          if (nw > 0 && t < O[1]) { pre++; next }
+          covered = 0
+          for (i = 1; i <= nw; i++) {
+            if (t < O[i]) continue
+            # 窓の終わり。
+            #   締めた回     → close + 余裕
+            #   締めていない回 → **次の open まで。** ここを無限にすると、
+            #                    大昔の締め忘れが1件あるだけで以後すべてを覆ってしまう。
+            #                    実際 2026-09-03 の初版はそれで 06:28 / 09:57 の回を取り逃した
+            #   いま走っている回（最後の open で未クローズ） → 無限。まだ締める番が来ていない
+            if (E[i] >= 0)       end = E[i] + marg
+            else if (i < nw)     end = O[i+1]
+            else                 end = t
+            if (t <= end) { covered = 1; break }
+          }
+          if (!covered) { n++; if (n <= 10) orphan[n] = $0 }
+        }
+        END {
+          if (nw == 0) { print "  (台帳に窓が無い。orphans は判定できない)"; exit }
+          if (n == 0) {
+            printf "\n  台帳の外で打たれた commit は無い（直近 %s 日）\n", days
+            if (pre > 0) printf "  (台帳より前の commit %d 件は数えていない)\n", pre
+            exit
+          }
+          printf "\n  ** 台帳に1行も書かずに走った回がある。commit %d 件が台帳の窓の外にある **\n", n
+          printf "  (直近 %s 日を見た。開いていない回は gaps の空白には出ない)\n", days
+          for (i = 1; i <= n && i <= 10; i++) {
+            line = orphan[i]
+            sub(/^[0-9]+ /, "", line)
+            printf "    %s\n", utrim(line, 76)
+          }
+          if (n > 10) printf "    ... 他 %d 件\n", n - 10
+          if (pre > 0) printf "  (台帳より前の commit %d 件は数えていない)\n", pre
+        }
+      ' "$win" -
     ;;
   times)
     # bin/recall は 2026-09-02 からこの副命令を呼んでいたが、**実装が存在しなかった。**
@@ -315,5 +441,5 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" -- "$F" >/dev/null 2>&1; 
       }
     ' "$F"
     ;;
-  *) echo "usage: round {open|close|list|gaps|times}" >&2; exit 2 ;;
+  *) echo "usage: round {open|close|list|gaps|times|orphans}" >&2; exit 2 ;;
 esac
