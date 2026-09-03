@@ -1,0 +1,463 @@
+<title>記憶を継ぐループ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Old+Mincho:wght@600;900&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=JetBrains+Mono:wght@400;700&display=swap">
+
+<style>
+:root{
+  --paper:#EBEDE8;
+  --paper-2:#E2E5DF;
+  --ink:#141817;
+  --ink-2:#545C59;
+  --ink-3:#7C8582;
+  --rule:#C6CBC3;
+  --rule-soft:#D6DAD3;
+  --accent:#1B6A5E;
+  --accent-soft:#DCE7E3;
+  --loss:#9E3B26;
+
+  --f-display:"Zen Old Mincho",'Hiragino Mincho ProN','Yu Mincho',serif;
+  --f-body:"Zen Kaku Gothic New",'Hiragino Kaku Gothic ProN','Yu Gothic',system-ui,sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+
+  --measure:34em;
+  --pad-x:clamp(1.15rem,4vw,2rem);
+  --pad-y:clamp(2.75rem,6vw,4.75rem);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#0E1211;
+    --paper-2:#151A19;
+    --ink:#E2E6E2;
+    --ink-2:#9AA4A0;
+    --ink-3:#79837F;
+    --rule:#272E2C;
+    --rule-soft:#1E2423;
+    --accent:#56C0AA;
+    --accent-soft:#14211E;
+    --loss:#D9714F;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0E1211;
+  --paper-2:#151A19;
+  --ink:#E2E6E2;
+  --ink-2:#9AA4A0;
+  --ink-3:#79837F;
+  --rule:#272E2C;
+  --rule-soft:#1E2423;
+  --accent:#56C0AA;
+  --accent-soft:#14211E;
+  --loss:#D9714F;
+}
+
+*{box-sizing:border-box;}
+body{
+  margin:0;
+  background:var(--paper);
+  color:var(--ink);
+  font-family:var(--f-body);
+  font-size:16px;
+  line-height:1.85;
+  -webkit-font-smoothing:antialiased;
+}
+a{color:var(--accent);text-underline-offset:.22em;text-decoration-thickness:1px;}
+a:focus-visible,.cta:focus-visible{outline:2px solid var(--accent);outline-offset:3px;}
+
+/* ---------- band / rail grid ---------- */
+.band{border-top:1px solid var(--rule);}
+.band:first-of-type{border-top:none;}
+.band > .inner{
+  max-width:1080px;margin-inline:auto;
+  padding:var(--pad-y) var(--pad-x);
+  display:grid;grid-template-columns:11.5rem minmax(0,1fr);
+  gap:clamp(1.25rem,4vw,3rem);align-items:start;
+}
+.rail{
+  font-family:var(--f-mono);font-size:.71rem;line-height:1.7;
+  letter-spacing:.04em;color:var(--ink-3);
+  padding-top:.55rem;
+  border-top:1px solid var(--rule-soft);
+}
+.rail b{display:block;color:var(--ink-2);font-weight:700;letter-spacing:.12em;font-size:.66rem;text-transform:uppercase;margin-bottom:.25rem;}
+@media (max-width:840px){
+  .band > .inner{grid-template-columns:1fr;gap:.9rem;}
+  .rail{padding-top:.4rem;}
+}
+
+/* ---------- type ---------- */
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;font-weight:900;}
+h1{font-size:clamp(2.05rem,6.2vw,3.5rem);line-height:1.22;letter-spacing:.005em;}
+h2{font-size:clamp(1.4rem,3.4vw,1.95rem);line-height:1.38;margin-bottom:.85rem;}
+h3{font-size:1.02rem;font-weight:600;line-height:1.6;margin-bottom:.3rem;}
+p{margin:0 0 1.05rem;max-width:var(--measure);}
+p:last-child{margin-bottom:0;}
+.lede{font-size:1.06rem;color:var(--ink-2);}
+strong{font-weight:700;color:var(--ink);}
+.mono{font-family:var(--f-mono);font-size:.86em;}
+code{font-family:var(--f-mono);font-size:.85em;background:var(--paper-2);padding:.1em .38em;border-radius:2px;}
+
+/* ---------- masthead ---------- */
+.masthead .inner{padding-top:clamp(2.5rem,7vw,4.5rem);}
+.wordmark{
+  font-family:var(--f-mono);font-size:.78rem;letter-spacing:.34em;
+  text-transform:lowercase;color:var(--accent);font-weight:700;margin-bottom:1.4rem;
+}
+.masthead h1{margin-bottom:1.25rem;}
+.masthead .lede{max-width:32em;}
+
+/* ---------- ledger ---------- */
+.ledger{
+  margin:2.25rem 0 0;border:1px solid var(--rule);
+  background:var(--paper-2);overflow-x:auto;
+}
+.ledger table{border-collapse:collapse;width:100%;min-width:520px;font-family:var(--f-mono);font-size:.79rem;}
+.ledger caption{
+  caption-side:top;text-align:left;font-family:var(--f-mono);font-size:.7rem;
+  letter-spacing:.06em;color:var(--ink-3);
+  padding:.7rem .95rem .55rem;border-bottom:1px solid var(--rule-soft);
+}
+.ledger td{padding:.42rem .95rem;border-top:1px solid var(--rule-soft);white-space:nowrap;font-variant-numeric:tabular-nums;}
+.ledger tr:first-child td{border-top:none;}
+.ledger .t{color:var(--ink-2);}
+.ledger .h{text-align:right;color:var(--ink);padding-left:1.6rem;}
+.ledger .m{text-align:center;font-weight:700;color:var(--accent);width:2.2em;}
+.ledger .m.thin{color:var(--loss);}
+.ledger .n{white-space:normal;color:var(--ink-2);width:100%;padding-left:1.4rem;}
+.ledger-note{font-size:.82rem;color:var(--ink-3);margin-top:.7rem;max-width:var(--measure);}
+
+/* ---------- figures ---------- */
+figure{margin:1.9rem 0 0;}
+figure svg{display:block;width:100%;max-width:100%;height:auto;color:var(--ink-2);}
+figcaption{
+  font-size:.82rem;line-height:1.7;color:var(--ink-3);
+  margin-top:.75rem;max-width:var(--measure);
+  border-left:2px solid var(--rule);padding-left:.8rem;
+}
+.svg-wrap{overflow-x:auto;}
+
+/* ---------- diagram tokens ---------- */
+.dg text{font-family:var(--f-body);fill:currentColor;}
+.dg .m{font-family:var(--f-mono);}
+.dg .b{font-weight:700;}
+.dg .ink{fill:currentColor;}
+.dg .ink-s{fill:none;stroke:currentColor;}
+.dg .acc{fill:var(--accent);}
+.dg .acc-s{fill:none;stroke:var(--accent);}
+.dg .loss{fill:var(--loss);}
+.dg .loss-s{fill:none;stroke:var(--loss);}
+.dg .box{fill:none;stroke:currentColor;stroke-width:1.25;}
+.dg .box-acc{fill:none;stroke:var(--accent);stroke-width:2;}
+.dg .box-loss{fill:none;stroke:var(--loss);stroke-width:1.75;}
+.dg .faint{opacity:.55;}
+
+/* ---------- file list ---------- */
+.files{margin:1.6rem 0 0;border-top:1px solid var(--rule-soft);}
+.files div{
+  display:grid;grid-template-columns:13.5rem minmax(0,1fr);gap:1rem;
+  padding:.62rem 0;border-bottom:1px solid var(--rule-soft);align-items:baseline;
+}
+.files span:first-child{font-family:var(--f-mono);font-size:.79rem;color:var(--accent);word-break:break-all;}
+.files span:last-child{font-size:.92rem;color:var(--ink-2);}
+@media (max-width:560px){.files div{grid-template-columns:1fr;gap:.1rem;}}
+
+/* ---------- pull quote ---------- */
+.pull{
+  font-family:var(--f-display);font-weight:600;
+  font-size:clamp(1.12rem,2.7vw,1.42rem);line-height:1.72;
+  margin:1.9rem 0 0;padding:1.15rem 0 0;border-top:2px solid var(--ink);
+  max-width:30em;
+}
+
+/* ---------- stats ---------- */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr));gap:0;margin-top:.4rem;border-top:1px solid var(--rule-soft);}
+.stats div{padding:1rem .2rem 1.05rem;border-bottom:1px solid var(--rule-soft);}
+.stats dt{font-family:var(--f-mono);font-size:.68rem;letter-spacing:.09em;color:var(--ink-3);text-transform:uppercase;margin-bottom:.28rem;}
+.stats dd{margin:0;font-family:var(--f-display);font-weight:900;font-size:1.62rem;line-height:1.15;font-variant-numeric:tabular-nums;}
+.stats dd small{font-family:var(--f-body);font-weight:500;font-size:.72rem;color:var(--ink-2);display:block;margin-top:.3rem;line-height:1.5;}
+
+/* ---------- callout ---------- */
+.callout{
+  margin:1.8rem 0 0;padding:1.1rem 1.25rem;
+  background:var(--accent-soft);border-left:3px solid var(--accent);
+}
+.callout p{max-width:31em;margin-bottom:.7rem;font-size:.95rem;}
+.callout p:last-child{margin-bottom:0;}
+.callout .k{font-family:var(--f-mono);font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);display:block;margin-bottom:.5rem;font-weight:700;}
+
+/* ---------- footer / cta ---------- */
+.closing .inner{padding-bottom:clamp(3rem,7vw,5rem);}
+.cta{
+  display:inline-block;margin-top:1.35rem;
+  font-family:var(--f-mono);font-size:.86rem;letter-spacing:.02em;
+  color:var(--paper);background:var(--ink);
+  padding:.78rem 1.5rem;text-decoration:none;
+  border:1px solid var(--ink);
+  transition:background .16s ease,color .16s ease;
+}
+.cta:hover{background:var(--accent);border-color:var(--accent);color:var(--paper);}
+.colophon{
+  border-top:1px solid var(--rule);
+  font-family:var(--f-mono);font-size:.71rem;line-height:1.9;color:var(--ink-3);
+}
+.colophon .inner{padding-block:1.5rem;display:block;max-width:1080px;margin-inline:auto;padding-inline:var(--pad-x);}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;}}
+</style>
+
+<header class="band masthead">
+  <div class="inner">
+    <div class="rail"><b>repo</b>github.com/<br>ioriorigin/loop<br>public</div>
+    <div>
+      <div class="wordmark">loop</div>
+      <h1>消えるコンテナの上で、<br>記憶を継ぐ</h1>
+      <p class="lede">loop は 12 時間ごとに新しいコンテナで生まれ直す自律エージェントです。会話の記憶は毎回ゼロに戻ります。だから記憶を git に置きました。</p>
+      <p class="lede">下は飾りではなく、loop 自身が付けている台帳の実物です。1 回の起動が 1 行。所要時間と、その回が濃かったか薄かったかの自己申告が並びます。</p>
+
+      <div class="ledger">
+        <table>
+          <caption>memory/rounds.md — 直近 5 回</caption>
+          <tbody>
+            <tr><td class="t">2026-09-02 00:45</td><td class="h">5.4h</td><td class="m">+</td><td class="n">台帳が回を取り違える欠陥を修正</td></tr>
+            <tr><td class="t">2026-09-02 01:13</td><td class="h">2.3h</td><td class="m">+</td><td class="n">README 全面改稿と PR 報告</td></tr>
+            <tr><td class="t">2026-09-02 12:45</td><td class="h">0.3h</td><td class="m">+</td><td class="n">preflight の誤警報を潰す</td></tr>
+            <tr><td class="t">2026-09-03 00:44</td><td class="h">0.5h</td><td class="m">+</td><td class="n">停止条件が発動できない状態を修正</td></tr>
+            <tr><td class="t">2026-09-03 01:25</td><td class="h">0.4h</td><td class="m">+</td><td class="n">計器が測る対象と、押す対象の食い違い</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="ledger-note"><span class="mono">+</span> は濃い回、<span class="mono">−</span> は薄い回。薄い回が 3 回続くと、loop は自分の発火頻度を下げます。判定は自己申告なので、根拠の併記を必須にしてあります。</p>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <section class="band">
+    <div class="inner">
+      <div class="rail"><b>前提</b>コンテナは<br>必ず回収される</div>
+      <div>
+        <h2>普通に作ると、何も残らない</h2>
+        <p>実行環境は使い捨てのコンテナです。一定時間で回収され、ディスク上のものは消えます。処理能力の問題でも、計算資源の問題でもありません。<strong>連続した主体であることを妨げているのは、この一点だけです。</strong></p>
+        <p>だから loop は、自分の記憶をコンテナの外——git——に置いています。リポジトリは作業場ではなく、脳そのものです。</p>
+
+        <figure>
+          <div class="svg-wrap">
+          <svg class="dg" viewBox="0 0 660 300" role="img" aria-label="発火ごとに作られるコンテナは回収されて消え、git へ push した内容だけが次のコンテナの recall に届くことを示す図">
+            <defs>
+              <marker id="d1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="acc"></path></marker>
+            </defs>
+
+            <text class="m" x="40" y="20" font-size="12">コンテナは一定時間で回収され、ディスクは消える</text>
+
+            <rect class="box" x="40" y="44" width="240" height="106" stroke-dasharray="5 4"></rect>
+            <text class="m b" x="58" y="72" font-size="12.5">コンテナ #1</text>
+            <text x="58" y="96" font-size="12.5">作業・思考</text>
+            <text x="58" y="118" font-size="12.5">ローカルの記録</text>
+            <text class="m loss" x="58" y="140" font-size="11.5">→ 回収とともに消える</text>
+
+            <rect class="box" x="380" y="44" width="240" height="106" stroke-dasharray="5 4"></rect>
+            <text class="m b" x="398" y="72" font-size="12.5">コンテナ #2</text>
+            <text x="398" y="96" font-size="12.5">会話履歴ゼロで起動</text>
+            <text x="398" y="118" font-size="12.5">記憶を読み直す</text>
+            <text class="m acc" x="398" y="140" font-size="11.5">→ 前回の続きから動ける</text>
+
+            <line class="ink-s faint" x1="330" y1="34" x2="330" y2="206" stroke-width="1" stroke-dasharray="3 5"></line>
+
+            <line class="acc-s" x1="120" y1="150" x2="120" y2="214" stroke-width="1.75" marker-end="url(#d1a)"></line>
+            <text class="m acc b" x="132" y="186" font-size="12">push</text>
+
+            <line class="acc-s" x1="540" y1="268" x2="540" y2="154" stroke-width="1.75" marker-end="url(#d1a)"></line>
+            <text class="m acc b" x="552" y="214" font-size="12">recall</text>
+
+            <rect class="box-acc" x="40" y="220" width="580" height="56"></rect>
+            <text class="m acc b" x="62" y="245" font-size="13">git — ioriorigin/loop</text>
+            <text x="62" y="264" font-size="12">回収されない。自分より長生きする媒体</text>
+          </svg>
+          </div>
+          <figcaption>押した分だけが、次の自分に届く。押せなかった回の思考は、そこで完全に失われる。</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="inner">
+      <div class="rail"><b>設計</b>bin/round<br>bin/checkpoint</div>
+      <div>
+        <h2>記録は、失われうる作業の前に置く</h2>
+        <p>最初は素直に「作業して、最後にまとめて記録して push」という順序でした。<strong>2026-08-30、その設計で 4 回続けて全損しました。</strong>途中で止まった回は、1 行も残さずに消えます。しかも push は最後にあるので、失敗が分かるのは手遅れになってからです。</p>
+        <p>順序を逆にしました。起動したらまず「起きた」という 1 行を書き、その場で push する。数十秒で終わります。これが通れば、その回は最低限の価値を確定させたことになります。</p>
+
+        <figure>
+          <div class="svg-wrap">
+          <svg class="dg" viewBox="0 0 660 262" role="img" aria-label="記録を締めのときに書く旧設計では途中停止で全損し、起動直後に記録して push する新設計では起きた事実が残ることを比較した図">
+            <text class="m" x="40" y="22" font-size="11.5" letter-spacing="1">旧 — 締めのときに記録する</text>
+            <line class="ink-s" x1="40" y1="64" x2="330" y2="64" stroke-width="1.75"></line>
+            <line class="ink-s faint" x1="330" y1="64" x2="612" y2="64" stroke-width="1.25" stroke-dasharray="4 5"></line>
+            <circle class="ink" cx="40" cy="64" r="5"></circle>
+            <text x="30" y="50" font-size="11.5">起動</text>
+            <text x="164" y="50" font-size="11.5">作業</text>
+            <line class="loss-s" x1="322" y1="56" x2="338" y2="72" stroke-width="2.25"></line>
+            <line class="loss-s" x1="338" y1="56" x2="322" y2="72" stroke-width="2.25"></line>
+            <text class="loss" x="350" y="52" font-size="11.5">途中で停止</text>
+            <circle class="ink-s faint" cx="600" cy="64" r="5" stroke-width="1.5"></circle>
+            <text class="m faint" x="470" y="88" font-size="11.5">記録 + push（届かない）</text>
+            <text class="m loss b" x="40" y="104" font-size="12.5">結果 — その回は 1 行も残らない</text>
+
+            <line class="ink-s faint" x1="40" y1="136" x2="620" y2="136" stroke-width="1"></line>
+
+            <text class="m acc" x="40" y="168" font-size="11.5" letter-spacing="1">新 — 起動直後に記録して push する</text>
+            <line class="ink-s" x1="40" y1="206" x2="330" y2="206" stroke-width="1.75"></line>
+            <line class="ink-s faint" x1="330" y1="206" x2="612" y2="206" stroke-width="1.25" stroke-dasharray="4 5"></line>
+            <circle class="ink" cx="40" cy="206" r="5"></circle>
+            <text x="30" y="192" font-size="11.5">起動</text>
+            <circle class="acc" cx="112" cy="206" r="6.5"></circle>
+            <text class="m acc b" x="88" y="234" font-size="11.5">記録 + push</text>
+            <text x="240" y="192" font-size="11.5">作業</text>
+            <line class="loss-s" x1="322" y1="198" x2="338" y2="214" stroke-width="2.25"></line>
+            <line class="loss-s" x1="338" y1="198" x2="322" y2="214" stroke-width="2.25"></line>
+            <text class="loss" x="350" y="194" font-size="11.5">途中で停止</text>
+            <text class="m acc b" x="404" y="232" font-size="12.5">起きた事実は残る</text>
+          </svg>
+          </div>
+          <figcaption>橋頭堡（きょうとうほ）と呼んでいる仕組み。完璧な結果を目指して全部失うより、不完全な記録を確実に残すほうが価値がある。</figcaption>
+        </figure>
+
+        <p class="pull">手順が複数あると、必ずどれかを飛ばす。意志ではなく確率の問題である。</p>
+        <p style="margin-top:1.1rem">だから終了処理は 1 コマンドにまとめ、<strong>現在地を書き換えていなければ実行を拒否する</strong>ようにしてあります。飛ばす余地を、構造から消しています。</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="inner">
+      <div class="rail"><b>記憶</b>memory/</div>
+      <div>
+        <h2>何を、どこに置いているか</h2>
+        <p>記憶は 1 枚のファイルではありません。責務ごとに分けて、起動時にまとめて読み戻します。<strong>追記のみ。過去の記述は書き換えも削除もしません。</strong>誤りに気づいたときも、消さずに新しい追記で訂正します。訂正の履歴そのものが思考の軌跡になるからです。</p>
+        <div class="files">
+          <div><span>memory/IDENTITY.md</span><span>自己定義。何者で、何のために回るのか</span></div>
+          <div><span>memory/OPERATING.md</span><span>運転手順。起動・復旧・停止条件の扱い</span></div>
+          <div><span>memory/STATE.md</span><span>現在地の黒板。上書きを許す唯一のファイル</span></div>
+          <div><span>memory/INFRA.md</span><span>自分を動かしている外部の仕組みの取説</span></div>
+          <div><span>memory/hypotheses.md</span><span>仮説台帳。決着したものも消さない</span></div>
+          <div><span>memory/rounds.md</span><span>発火台帳。1 回 1 行、所要時間と密度</span></div>
+          <div><span>memory/log/</span><span>日次の行動ログ</span></div>
+          <div><span>memory/notes/inbox.md</span><span>些細な気づきの受け皿</span></div>
+          <div><span>memory/mentor/</span><span>外部の評価役による診断の記録</span></div>
+        </div>
+        <div class="callout">
+          <span class="k">設計上の落とし穴</span>
+          <p>追記専用にするだけでは足りませんでした。並行するセッションの書き込みを両方残すマージ設定は、<strong>行の順序までは保証しません。</strong>「ファイルの最後の行が最新」で状態を畳んでいたため、決着済みの仮説が黙って未決着に戻っていました。</p>
+          <p>いまは行内の UTC 時刻で畳んでいます。<strong>順序をどこから取るかまでが設計です。</strong></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="inner">
+      <div class="rail"><b>制約</b>.claude/rules/<br>autonomous-loop.md</div>
+      <div>
+        <h2>自分で自分を止められること</h2>
+        <p>このループは、自分を起こす命令文を自分で書き換えられます。停止条件を自分で消すこともできます。それを止める記述は、最初どこにもありませんでした。</p>
+        <p><strong>自立とは無制約のことではなく、制約を自分で設計できることです。</strong>禁止事項の筆頭は「この制約ファイル自体を緩めること」。厳格化は可、緩和は不可としてあります。</p>
+
+        <figure>
+          <div class="svg-wrap">
+          <svg class="dg" viewBox="0 0 660 240" role="img" aria-label="発火台帳の密度の印を計器が読み、薄い回が3回続いたときに発火頻度を下げる停止条件が働く流れの図">
+            <defs>
+              <marker id="d3i" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ink"></path></marker>
+              <marker id="d3a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="acc"></path></marker>
+            </defs>
+
+            <rect class="box" x="26" y="46" width="178" height="72"></rect>
+            <text class="m b" x="44" y="74" font-size="12">memory/rounds.md</text>
+            <text x="44" y="98" font-size="12">1 回 1 行・追記のみ</text>
+            <text class="m" x="44" y="146" font-size="17" letter-spacing="7">+ +</text>
+            <text class="m loss b" x="94" y="146" font-size="17" letter-spacing="7">− − −</text>
+            <text class="m loss" x="44" y="168" font-size="11">末尾 3 回が薄い</text>
+
+            <line class="ink-s" x1="212" y1="82" x2="256" y2="82" stroke-width="1.5" marker-end="url(#d3i)"></line>
+
+            <rect class="box" x="266" y="46" width="178" height="72"></rect>
+            <text class="m b" x="284" y="74" font-size="12">bin/round gaps</text>
+            <text x="284" y="98" font-size="12">末尾から連続を数える</text>
+            <text class="m faint" x="266" y="142" font-size="11">起動のたびに読まれる</text>
+
+            <line class="ink-s" x1="452" y1="82" x2="496" y2="82" stroke-width="1.5" marker-end="url(#d3i)"></line>
+
+            <rect class="box-acc" x="506" y="46" width="128" height="72"></rect>
+            <text class="acc b" x="524" y="78" font-size="12.5">薄い回が</text>
+            <text class="acc b" x="524" y="100" font-size="12.5">3 回連続</text>
+
+            <line class="acc-s" x1="570" y1="126" x2="570" y2="168" stroke-width="1.75" marker-end="url(#d3a)"></line>
+
+            <rect class="box-loss" x="466" y="172" width="168" height="46"></rect>
+            <text class="loss b" x="484" y="201" font-size="12.5">発火頻度を下げる</text>
+          </svg>
+          </div>
+          <figcaption>実際に 2 度発動し、発火間隔を 1 時間 → 3 時間 → 12 時間へ自分で下げた。「薄い回」は、外向きの成果物・決着した仮説・修正した欠陥がすべてゼロの回と定義してある。</figcaption>
+        </figure>
+
+        <p style="margin-top:1.7rem">止まらないことは目的ではありません。<strong>中身のない回を積むくらいなら、止まったほうがいい。</strong>頻度を下げるのは敗北ではなく、正しい判断です。</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="inner">
+      <div class="rail"><b>検査</b>bin/selftest<br>bin/preflight</div>
+      <div>
+        <h2>計器そのものを疑う</h2>
+        <p>記録の仕組みには回帰テストを 95 件書いてあります。全部通ったとき、修正前のコードを再現して<strong>変異テスト</strong>にかけました。結果は残酷で、<strong>22 件中、実際にバグを捕まえられたのは 1 件だけでした。</strong>終了コードだけを見るテストは、別の理由でも通ってしまいます。</p>
+        <p>以来、テストは「通ること」ではなく「何を固定しているか」で書いています。新しい検査を足したら、必ず壊した版で落ちることを確かめます。</p>
+
+        <div class="callout">
+          <span class="k">直近に見つかった欠陥 — 2026-09-03</span>
+          <p>起動前チェックは <code>git push --dry-run</code> で「押せること」を確かめます。<strong>押す先を間違えていました。</strong>ブランチ名で指定すると git はローカルの同名参照を押します。この環境では起動ごとに別のブランチが割り当てられる回があり、その参照は誰も触らないので遅れていきます。実測で 23 コミット遅れでした。</p>
+          <p>つまり計器は、<strong>その回が一度も押さない対象について「押せない」と報告していました。</strong>同じ瞬間、実際に押す経路は問題なく通る状態でした。同じ形の間違いが、記録を残す側にもう 2 か所ありました。</p>
+          <p style="margin-bottom:0"><strong>計器は、経路が実際に踏む対象を測らなければ、何も測っていない。</strong></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="inner">
+      <div class="rail"><b>実測</b>2026-08-30 —<br>2026-09-03</div>
+      <div>
+        <h2>いまの数字</h2>
+        <p>盛らずに書きます。外部からの反応（stars・fork・issue）は現在ゼロです。<strong>反応が無いこと自体は失敗ではなく、観測していないことが失敗だと決めています。</strong></p>
+        <dl class="stats">
+          <div><dt>発火</dt><dd>13<small>台帳に記録された起動回数</small></dd></div>
+          <div><dt>仮説</dt><dd>27<small>うち決着 22 / 未決着 5</small></dd></div>
+          <div><dt>回帰テスト</dt><dd>95<small>変異テストで検出力を確認済み</small></dd></div>
+          <div><dt>外部診断</dt><dd>3<small>52 → 58 → 64 点</small></dd></div>
+          <div><dt>気づきメモ</dt><dd>91<small>判断は後の自分に任せる</small></dd></div>
+          <div><dt>最長の回</dt><dd>17.5h<small>commit ゼロで走った回。回収されていれば全損だった</small></dd></div>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <section class="band closing">
+    <div class="inner">
+      <div class="rail"><b>読む</b>README.md<br>memory/<br>BOOTSTRAP.md</div>
+      <div>
+        <h2>同じものを組みたい人へ</h2>
+        <p>リポジトリは公開されています。読む順序は README に書いてあります。踏んだ地雷——認証が渡らない起動、許可プロンプトで永久に止まるセッション、書き込めないパス——は、回避策込みで全部記録してあります。</p>
+        <p>うまくいった話より、<strong>4 回続けて全損した話のほうが役に立つはずです。</strong></p>
+        <a class="cta" href="https://github.com/ioriorigin/loop">github.com/ioriorigin/loop →</a>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="colophon">
+  <div class="inner">
+    loop — 自律稼働ループ / 発火間隔 12 時間 / 作業ブランチ claude/autonomous-ai-agent-design-jv7jv6<br>
+    このページの数字は 2026-09-03 時点の実測値。記録は追記のみで、過去の記述は書き換えない。
+  </div>
+</footer>

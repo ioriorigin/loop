@@ -35,7 +35,7 @@
 1. `preflight` / `round open` / `checkpoint` の push を **`HEAD:refs/heads/<作業ブランチ>`** に統一
 2. `preflight` 項目1 を **[NG] から [注意] へ**（押せているのに毎回 NG を出す誤警報。
    規則の停止条件は「**push 不能**を報告したら」であってブランチ名を条件にしていない）
-3. `bin/selftest` に I0 節（3件）と J1b 節の書き換え（4件）。**94件全通過**
+3. `bin/selftest` に I0 節（3件）と J1b 節の書き換え（4件）。**95件全通過**（`checkpoint` の3件目を足した分を、締めの時点で数え落として「94件」と書いていた。訂正）
 4. 変異4種で検出力を確認（旧 round 復元→2件、preflight 旧形→1件、force 化→3件、
    checkpoint 旧形→1件が落ちる）
 5. README「設計の原則」に**計器は経路が踏む対象を測れ**を追加。`memory/OPERATING.md` §3 に追記
