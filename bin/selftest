@@ -1,0 +1,496 @@
+#!/usr/bin/env bash
+# 記録系スクリプトの回帰テスト。使い捨ての一時ディレクトリで全経路を通す。
+#
+# なぜこれがあるか:
+#   「使う前に一度通す」と自分で書いた直後に、未検証のスクリプトを本番で叩いて2回壊した。
+#   3度目の決意ではなく、決意を不要にする仕組みが要る。それがこれ。
+#   bin/ を触ったら必ず走らせること。preflight からも自動で呼ばれる。
+set -uo pipefail
+
+SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+T="$(mktemp -d)"
+trap 'rm -rf "$T"' EXIT
+
+pass=0; fail=0
+ok()   { printf '  [ok]   %s\n' "$1"; pass=$((pass+1)); }
+ng()   { printf '  [NG]   %s\n' "$1"; fail=$((fail+1)); }
+check(){ if [ "$1" -eq 0 ]; then ok "$2"; else ng "$2"; fi; }
+
+# --- 足場を組む ---
+mkdir -p "$T/bin" "$T/memory/notes" "$T/memory/log" "$T/memory/mentor"
+cp "$SRC"/bin/{_common.sh,log,note,hypo,recall,checkpoint,round} "$T/bin/"
+chmod +x "$T"/bin/*
+printf '# 自己定義\nテスト用。\n' > "$T/memory/IDENTITY.md"
+# inbox.md は「存在するが1件も無い」状態で置く。これが grep -c が exit 1 を返す実条件。
+# ファイル自体が無いと recall は grep に到達せず、バグを踏まないままテストが通ってしまう。
+printf '# 気づきの受け皿\n\n' > "$T/memory/notes/inbox.md"
+printf '# 現在地\nテスト用。\n'   > "$T/memory/STATE.md"
+# OPERATING.md も同型の切り落としを起こしうる。ここは起動・push 復旧・停止条件の手順が入る場所で、
+# 末尾ほど「困ったときに読む」内容になる。前半だけ出す実装は、困っている自分にだけ届かない。
+{ printf '# 運転手順\n'; for i in $(seq 1 60); do printf 'padding %s\n' "$i"; done
+  printf '## メンター診断\nOPERATING_TAIL_MUST_SURVIVE\n'; } > "$T/memory/OPERATING.md"
+# INFRA.md は「深い位置に置いた印が recall の出力に出るか」で切り落としを検出する
+{ printf '# 稼働インフラ\n'; for i in $(seq 1 60); do printf 'padding %s\n' "$i"; done
+  printf '### 既知の制約（重要）\nDEEP_MARKER_MUST_SURVIVE\n'; } > "$T/memory/INFRA.md"
+# メンター診断も同型の切り落としが起きる。診断は最も重い指摘（盲点・次にやるべきこと）が後半に来るので、
+# 前半だけ出す実装は「一番読ませたい部分だけが届かない」という最悪の壊れ方をする。
+# 実際 bin/recall に sed -n '1,40p' が残っていて、前回診断の盲点が生まれ直した自分に一度も届いていなかった。
+{ printf '# 診断 2026-01-01\n'; for i in $(seq 1 60); do printf 'padding %s\n' "$i"; done
+  printf '## 盲点\nMENTOR_TAIL_MUST_SURVIVE\n'; } > "$T/memory/mentor/2026-01-01.md"
+
+echo "自己テスト: $(TZ=Asia/Tokyo date '+%Y-%m-%d %H:%M:%S JST')"
+echo "作業ディレクトリ: $T"
+echo
+
+echo "A. recall — 気づきメモが空でも行動ログ節まで到達するか"
+# grep -c はヒット0件で exit 1 を返す。set -e 下で recall 全体が黙って死んでいた。
+out=$("$T/bin/recall" 2>&1); rc=$?
+check $rc "exit 0 で終了する"
+grep -q '行動ログ' <<<"$out"; check $? "「行動ログ」節が出力される"
+grep -q '呼び戻し完了' <<<"$out"; check $? "最後まで到達する"
+
+echo "B. recall — INFRA.md の末尾が切り落とされないか"
+grep -q 'DEEP_MARKER_MUST_SURVIVE' <<<"$out"; check $? "INFRA.md の深い位置の記述が生き残る"
+
+echo "B1. recall — 運転手順が出力され、末尾まで切り落とされないか"
+# 運転手順は 2026-08-31 まで git の外（トリガーのプロンプト）にしか無かった。
+# 経路に載せた以上、載り続けることをテストで担保する。
+grep -q '運転手順 (memory/OPERATING.md)' <<<"$out"; check $? "運転手順の節が出力される"
+grep -q 'OPERATING_TAIL_MUST_SURVIVE' <<<"$out"; check $? "運転手順の末尾が生き残る"
+
+echo "B1b. recall — 運転手順が欠けたら黙らずに警告するか"
+# 無いのに黙って通ると、手順が消えたことに誰も気づかない。静かな失敗を作らない。
+mv "$T/memory/OPERATING.md" "$T/memory/OPERATING.md.bak"
+out_no=$("$T/bin/recall" 2>&1); check $? "  欠けていても exit 0 で最後まで走る"
+grep -q '運転手順が無い' <<<"$out_no"; check $? "  欠けていることを明示的に警告する"
+grep -q '呼び戻し完了' <<<"$out_no"; check $? "  警告しても後続の節は止まらない"
+mv "$T/memory/OPERATING.md.bak" "$T/memory/OPERATING.md"
+
+echo "B2. recall — メンター診断の末尾が切り落とされないか"
+# 診断は後半ほど重い（盲点・次にやるべきこと）。前半だけ出す実装は最悪の壊れ方をする。
+grep -q 'MENTOR_TAIL_MUST_SURVIVE' <<<"$out"; check $? "診断の末尾（盲点の節）が生き残る"
+
+echo "C. recall — 引数が壊れていても死なないか"
+out2=$("$T/bin/recall" xyz 2>&1); check $? "非数値引数 'xyz' でも exit 0"
+grep -q '行動ログ' <<<"$out2"; check $? "  行動ログ節まで到達する"
+"$T/bin/recall" all >/dev/null 2>&1; check $? "'all' が通る"
+"$T/bin/recall" 999 >/dev/null 2>&1; check $? "日数がログ数を超えても通る"
+
+echo "D. log / note — 本文なしでハングしないか"
+# body=$(cat) が端末を待って無限に固まる経路。定期起動セッションが踏むと丸1回無言で溶ける。
+# </dev/null を渡すと cat が即座に返るのでバグを再現できない。実 tty が要る。
+# python の pty で本物の端末を割り当てて呼ぶ。
+timeout 8 python3 -c '
+import pty,sys,os
+sys.exit(0 if os.WEXITSTATUS(pty.spawn([sys.argv[1], "見出しのみ"])) or True else 0)
+' "$T/bin/log" >/dev/null 2>&1
+rc=$?
+[ "$rc" -ne 124 ]; check $? "tty から本文なしで呼んでもハングしない（timeout 124 を返さない）"
+"$T/bin/log" "見出し" "本文" >/dev/null 2>&1; check $? "引数2つの log が通る"
+printf '標準入力から\n' | "$T/bin/log" "見出し" >/dev/null 2>&1; check $? "パイプ経由の log が通る"
+"$T/bin/note" "気づき" >/dev/null 2>&1; check $? "note が通る"
+
+echo "E. hypo — 追記だけで状態遷移が畳めるか"
+id=$("$T/bin/hypo" add "テスト仮説" 2>/dev/null); check $? "add が通る"
+[[ "$id" =~ ^H001-[0-9a-f]{3}$ ]]; check $? "  採番が H001- で始まり乱数の接尾辞が付く"
+"$T/bin/hypo" list 2>/dev/null | grep -q "$id"; check $? "  list に open として出る"
+"$T/bin/hypo" close "$id" verified "根拠" >/dev/null 2>&1; check $? "close が通る"
+! "$T/bin/hypo" list 2>/dev/null | grep -q "^$id "; check $? "  close 後は list から消える"
+id2=$("$T/bin/hypo" add "次" 2>/dev/null)
+[[ "$id2" =~ ^H002- ]]; check $? "  close 済みを飛ばさず H002 を採番する"
+# 2026-08-30 の実障害の回帰テスト。並行する2セッションが同一の台帳を見て同時に採番すると、
+# 連番だけでは同じ ID を別の仮説に振ってしまい、awk の畳み込みが別物を1つの仮説として混ぜる。
+cp "$T/memory/hypotheses.md" "$T/ledger.snapshot"
+a=$("$T/bin/hypo" add "並行A" 2>/dev/null)
+cp "$T/ledger.snapshot" "$T/memory/hypotheses.md"   # 相手が書く前の台帳に巻き戻す = 同時採番の再現
+b=$("$T/bin/hypo" add "並行B" 2>/dev/null)
+[ "${a%%-*}" = "${b%%-*}" ]; check $? "  同時採番は連番部分が一致する（衝突条件の再現）"
+[ "$a" != "$b" ]; check $? "  それでも ID 全体は衝突しない"
+! "$T/bin/hypo" close H999 verified "x" >/dev/null 2>&1; check $? "存在しない ID の close は失敗する"
+
+echo "E2. hypo — 古いイベントが後ろに積まれても決着が蘇らないか"
+# 2026-08-31 の実障害の回帰テスト。追記専用ファイルは .gitattributes の merge=union で併合されるため、
+# 並行セッションが書いた**古いイベントがファイルの後ろに来る**。畳み込みを出現順で行っていたため、
+# 自分で verified にした H003 が open として復活していた。決定を黙って取り消す台帳は、間違った台帳より悪い。
+cat >> "$T/memory/hypotheses.md" <<'LEDGER'
+
+- id: H900-aaa
+  - `2026-08-31 00:10:00 UTC / 2026-08-31 09:10:00 JST` **open** 先に立てた仮説
+
+- id: H900-aaa
+  - `2026-08-31 00:50:00 UTC / 2026-08-31 09:50:00 JST` **verified** 決着させた（新しい）
+
+- id: H900-aaa
+  - `2026-08-31 00:20:00 UTC / 2026-08-31 09:20:00 JST` **open** 並行セッションが書いた古いイベント（union で後ろに積まれた）
+LEDGER
+! "$T/bin/hypo" list 2>/dev/null | grep -q '^H900-aaa '; check $? "古い open が後から積まれても復活しない"
+
+# 逆方向。本当に開き直した（annotate した）ものは open のままでなければならない。
+# 「出さない」だけなら、全部隠す実装でもテストは通ってしまう。
+cat >> "$T/memory/hypotheses.md" <<'LEDGER'
+
+- id: H901-bbb
+  - `2026-08-31 00:10:00 UTC / 2026-08-31 09:10:00 JST` **verified** いったん決着
+
+- id: H901-bbb
+  - `2026-08-31 01:00:00 UTC / 2026-08-31 10:00:00 JST` **open** 後から検証条件が変わって開き直した
+LEDGER
+"$T/bin/hypo" list 2>/dev/null | grep -q '^H901-bbb '; check $? "新しい open は正しく open のまま残る"
+
+echo "F. 追記原則 — 過去の記述が消えていないか"
+grep -q 'テスト仮説' "$T/memory/hypotheses.md"; check $? "close しても元の仮説文が台帳に残る"
+grep -q '見出しのみ\|見出し' "$T/memory/log"/*/*/*.md; check $? "ログが追記されている"
+
+echo "G. 日付境界 — ログのファイル名が JST で切られるか"
+expect="$(TZ=Asia/Tokyo date '+%Y-%m-%d').md"
+[ -f "$T/memory/log/$(TZ=Asia/Tokyo date '+%Y/%m')/$expect" ]; check $? "JST の日付でファイルが作られる（$expect）"
+
+echo "H. checkpoint — STATE.md を更新せずに締められないか"
+# mtime 判定だと clone 直後は必ず age=0 で素通りする。内容ベースでなければ意味がない。
+G="$(mktemp -d)"
+mkdir -p "$G/bin" "$G/memory/notes" "$G/memory/log"
+cp "$SRC"/bin/{_common.sh,log,note,hypo,recall,checkpoint,round} "$G/bin/"; chmod +x "$G"/bin/*
+printf '# 現在地\n初期状態。\n' > "$G/memory/STATE.md"
+git -C "$G" init -q 2>/dev/null
+git -C "$G" add -A >/dev/null 2>&1
+git -C "$G" -c user.name=t -c user.email=t@t commit -qm init >/dev/null 2>&1
+# STATE.md を触らずに checkpoint → STATE ゲートで止まるべき
+before_n=$(git -C "$G" rev-list --count HEAD)
+outc=$("$G/bin/checkpoint" "見出し" "本文" 2>&1); rc=$?
+after_n=$(git -C "$G" rev-list --count HEAD)
+# 終了コードだけ見てはいけない。mtime 判定のままでも push 失敗で exit≠0 になり、
+# テストが「別の理由で」通ってしまう。コミットが増えていないことを構造で確かめる。
+[ "$before_n" = "$after_n" ]; check $? "STATE.md 無変更ならコミットが作られない"
+[ "$rc" -ne 0 ]; check $? "  かつ exit 0 で終わらない"
+grep -q '1文字も変わっていない' <<<"$outc"; check $? "  STATE ゲートで止まったと分かるメッセージが出る"
+# STATE ゲートで止まった回は、台帳にも触れていないこと。
+# 触れていると close 行だけが残り、**やり直しの checkpoint が二重 close になる。**
+# 締めをやり直せない締めの道具は、締めの道具ではない。2026-09-02 に実際に踏んだ。
+printf '# 台帳\n\n- `t` epoch=1788000000 x\n' > "$G/memory/rounds.md"
+"$G/bin/checkpoint" "見出し" "本文" + "根拠" >/dev/null 2>&1
+! grep -q 'mark=' "$G/memory/rounds.md"
+check $? "  STATE ゲートで止まった回は台帳に close 行を書かない（やり直せる）"
+# STATE.md を書き換えれば、少なくとも STATE ゲートは通過する
+printf '# 現在地\n書き換えた。\n' > "$G/memory/STATE.md"
+outc2=$("$G/bin/checkpoint" "見出し" "本文" 2>&1)
+grep -q '4/5 commit' <<<"$outc2"; check $? "STATE.md を更新すれば commit 段階まで進む"
+# 密度の印を渡したら、締めの経路が round close を呼んで台帳に残すこと。
+# 手で叩く手順にすると必ず飛ばす。飛ばす余地を構造から消すのが checkpoint の存在理由である。
+printf '# 現在地\nさらに書き換えた。\n' > "$G/memory/STATE.md"
+"$G/bin/checkpoint" "見出し" "本文" + "外向き1件" >/dev/null 2>&1
+grep -q 'mark=+' "$G/memory/rounds.md" 2>/dev/null
+check $? "  密度の印を渡すと checkpoint が台帳に close 行を残す"
+rm -rf "$G"
+echo "J. round — 見ていない発火を検出できるか"
+# 停止条件のカウンタが手動だと、途中で死んだ回は数えられず規定が素通りする。
+# 台帳に空白が空いたことを機械が言えなければ、この仕組みは無いのと同じ。
+# だから「空白を見逃さない」だけでなく「空白でないものを空白と言わない」も確かめる。
+L="$T/memory/rounds.md"
+: > "$L"
+out=$("$T/bin/round" gaps 12 2>&1)
+grep -q '発火の記録なし' <<<"$out"; check $? "空の台帳で『記録なし』と言う"
+
+# 12時間刻みで3件 — 空白は無いはず
+: > "$L"
+for k in 0 43200 86400; do
+  printf -- '\n- `t%s` epoch=%s x\n' "$k" $((1788000000+k)) >> "$L"
+done
+out=$("$T/bin/round" gaps 12 2>&1)
+! grep -q '\[空白\]' <<<"$out"; check $? "正常な間隔を空白と誤検出しない"
+grep -q '見落とした発火は無い' <<<"$out"; check $? "  正常時はその旨を明示する"
+
+# 2件目と3件目の間を36時間あける — 空白1件を検出するはず
+: > "$L"
+for k in 0 43200 172800; do
+  printf -- '\n- `t%s` epoch=%s x\n' "$k" $((1788000000+k)) >> "$L"
+done
+out=$("$T/bin/round" gaps 12 2>&1)
+[ "$(grep -c '\[空白\]' <<<"$out")" = "1" ]; check $? "36時間の空白をちょうど1件検出する"
+grep -q '見ていない発火がある可能性' <<<"$out"; check $? "  見落としがある旨を明示する"
+
+# open は起動直後に呼ばれる。解析可能な行を必ず1行足すこと
+before=$(grep -c 'epoch=' "$L")
+"$T/bin/round" open "テスト" >/dev/null 2>&1; check $? "open が通る"
+[ "$(grep -c 'epoch=' "$L")" = "$((before+1))" ]; check $? "  open は解析可能な行を1行だけ足す"
+# 橋頭堡 push は起動手順の1行目に埋まっている。**ここで止まる実装は、その回を丸ごと殺す。**
+# git の無い場所でも、押せない場所でも、落ちずに理由を言って進むこと。
+outo=$("$T/bin/round" open "git外" 2>&1); check $? "  git 管理外でも open は落ちない"
+grep -q '橋頭堡 push は省略' <<<"$outo"; check $? "  押さなかった理由を黙らずに言う"
+
+echo "J1a. round close — 並行する回があっても自分の回を閉じるか"
+# 2026-09-02 の実障害の回帰テスト。台帳は全セッションが同じファイルに追記する。
+# close が「台帳の最後の open」に付く実装だったので、**00:45 の回の close が 01:13 の回に付いた。**
+# 結果、自分の回は未クローズのまま、他人の回に close 行が2本並んだ。
+# 台帳は停止条件が読む唯一の量である。**取り違えた台帳は、無い台帳より悪い。**
+P="$(mktemp -d)"; Q="$(mktemp -d)"
+for d in "$P" "$Q"; do
+  mkdir -p "$d/bin" "$d/memory"; cp "$SRC"/bin/{_common.sh,round} "$d/bin/"; chmod +x "$d"/bin/*
+done
+# 2つのコンテナが同じ台帳を共有する状況を作る（実体は1つ、印はそれぞれ別）
+"$P/bin/round" open "自分の回" >/dev/null 2>&1
+cp "$P/memory/rounds.md" "$Q/memory/rounds.md"
+sleep 1
+"$Q/bin/round" open "並行する他人の回" >/dev/null 2>&1     # 台帳の最後の open は他人のものになる
+cp "$Q/memory/rounds.md" "$P/memory/rounds.md"
+mine=$(awk '{print $1}' "$P/.round-current")
+"$P/bin/round" close + "自分の根拠" >/dev/null 2>&1
+grep -q "for=$mine" "$P/memory/rounds.md"; check $? "close は自分の open を指す（for= が一致する）"
+"$P/bin/round" gaps 12 2>&1 | grep -q '自分の根拠'
+check $? "  gaps が自分の回に密度を出す"
+[ "$("$P/bin/round" gaps 12 2>&1 | grep -c '未クローズ)')" = "1" ]
+check $? "  他人の回だけが未クローズとして残る（自分の回に付け替わらない）"
+! "$P/bin/round" close + "もう一度" >/dev/null 2>&1
+check $? "  同じ回を二度閉じない"
+# 印を失った回は、帰属を確かめられない。**確かめていない帰属を、確かめた帰属と同じ形で書かない。**
+# 2026-09-02、この経路が他人の回に close を2度付けた。1度目の訂正の直後にもう1度である。
+rm -f "$P/.round-current"
+outu=$("$P/bin/round" close + "印を失った回" 2>&1)
+grep -q 'for=? ' "$P/memory/rounds.md"; check $? "  印が無い回の close は for=? と書く（帰属を偽らない）"
+grep -q '確かめられない' <<<"$outu"; check $? "  そのとき黙らずに警告する"
+rm -rf "$P" "$Q"
+
+echo "J1b. round open — 橋頭堡 push が台帳行だけを外に固定するか"
+# 第3回診断「次にやるべきこと1」。台帳行の永続化が、その回の最後の push に依存していた。
+# 8時間41分 commit ゼロで走った回があり、回収されていれば丸ごと消えていた。
+R="$(mktemp -d)"; B="$(mktemp -d)"
+mkdir -p "$R/bin" "$R/memory"
+cp "$SRC"/bin/{_common.sh,round} "$R/bin/"; chmod +x "$R"/bin/*
+git init -q --bare "$B/remote.git"
+git -C "$R" init -q -b claude/autonomous-ai-agent-design-jv7jv6
+git -C "$R" remote add origin "$B/remote.git"
+printf '# 台帳\n' > "$R/memory/rounds.md"
+printf 'x\n' > "$R/other.txt"      # 台帳以外の未コミット変更。巻き込んではいけない
+git -C "$R" add memory/rounds.md >/dev/null 2>&1
+git -C "$R" -c user.name=t -c user.email=t@t commit -qm init >/dev/null 2>&1
+"$R/bin/round" open "橋頭堡テスト" >/dev/null 2>&1
+[ "$(git -C "$R" rev-list --count HEAD)" = "2" ]; check $? "open が台帳行を commit する"
+git -C "$R" ls-remote origin 2>/dev/null | grep -q autonomous-ai-agent-design
+check $? "  作業ブランチへ push されている（次の自分が読める場所に残る）"
+git -C "$R" show --stat --name-only HEAD | grep -q 'other.txt'
+[ $? -ne 0 ]; check $? "  台帳以外の変更を巻き込まない"
+# ハーネスが別ブランチを割り当てて起動する回が実在する。**直近3回すべてがそれだった。**
+# 旧実装はそこで「commit はしたが push しない」と言って止まっており、
+# **橋頭堡 push は、それが最も要る回で一度も動いていなかった**（2026-09-03 / H024-26b）。
+# 台帳行の永続化を「その回の最後の push」から切り離すために作った仕組みが、
+# 呼ばれる状況では常に退化した入力（＝作業ブランチにいない）へ落ちていた。
+# 正しい振る舞いは「ブランチ名ではなく、作業ブランチの **ref** へ HEAD を押す」である。
+git -C "$R" checkout -q -b claude/harness-assigned
+printf 'y\n' >> "$R/memory/rounds.md"
+outb=$("$R/bin/round" open "別ブランチ" 2>&1)
+grep -q '橋頭堡 push ok' <<<"$outb"
+check $? "  割り当てブランチにいても台帳行を作業ブランチへ固定する"
+git -C "$R" ls-remote origin refs/heads/claude/autonomous-ai-agent-design-jv7jv6 2>/dev/null \
+  | grep -q "$(git -C "$R" rev-parse HEAD)"
+check $? "    押した先は作業ブランチの先端である（次の自分が読む場所）"
+[ "$(git -C "$R" ls-remote origin 2>/dev/null | grep -c harness-assigned)" = "0" ]
+check $? "  見えない場所にブランチを作らない"
+
+# **良性側を広げすぎない。** 作業ブランチを含まない履歴の上にいる回で押してしまうと、
+# 無関係な履歴を記憶のブランチへ流し込む。判定はサーバの fast-forward 検査に委ねる。
+git -C "$R" checkout -q --orphan claude/unrelated
+git -C "$R" -c user.name=t -c user.email=t@t commit -qm orphan >/dev/null 2>&1
+tip_before=$(git -C "$R" ls-remote origin refs/heads/claude/autonomous-ai-agent-design-jv7jv6 2>/dev/null | awk '{print $1}')
+printf 'z\n' >> "$R/memory/rounds.md"
+outn=$("$R/bin/round" open "無関係な履歴" 2>&1); check $? "  ff でない回でも open は落ちない"
+grep -q '橋頭堡 push 失敗' <<<"$outn"; check $? "    押せなかったことを黙らずに言う"
+tip_after=$(git -C "$R" ls-remote origin refs/heads/claude/autonomous-ai-agent-design-jv7jv6 2>/dev/null | awk '{print $1}')
+[ "$tip_before" = "$tip_after" ]; check $? "    無関係な履歴を作業ブランチへ流し込まない"
+rm -rf "$R" "$B"
+
+# close — 回の内側を測る。open だけの台帳は「回と回の間」しか見ていなかった（第3回診断の盲点1）
+: > "$L"
+"$T/bin/round" open "テスト回" >/dev/null 2>&1
+"$T/bin/round" close + "外向き1件" >/dev/null 2>&1; check $? "close が通る"
+# close 行が発火として数えられてはいけない。数えると間隔が半分に見え、空白検出が壊れる
+[ "$(grep -cE '^- `.*epoch=' "$L")" = "1" ]; check $? "  close 行は発火として数えられない"
+out=$("$T/bin/round" gaps 12 2>&1)
+grep -q '直近の回（所要時間と密度）' <<<"$out"; check $? "  gaps が回の内側（所要時間と密度）を出す"
+# 根拠なしの close は通してはいけない。自己申告は必ず甘くなる
+"$T/bin/round" close + >/dev/null 2>&1; [ $? -ne 0 ]; check $? "  根拠なしの close は拒否される"
+"$T/bin/round" close x "y" >/dev/null 2>&1; [ $? -ne 0 ]; check $? "  + か - 以外の印は拒否される"
+# 薄い回3連続 = 規則の停止条件。参照する量をここで初めて機械が持つ
+: > "$L"
+for k in 1 2 3; do
+  "$T/bin/round" open "薄い回$k" >/dev/null 2>&1
+  "$T/bin/round" close - "全部ゼロ" >/dev/null 2>&1
+done
+out=$("$T/bin/round" gaps 12 2>&1)
+grep -q '薄い回が 3 回連続' <<<"$out"; check $? "  薄い回が3回続いたら停止条件を突きつける"
+# 濃い回が1つ挟まれば連続は切れる。切れないと警告が鳴りっぱなしになり、誰も読まなくなる
+"$T/bin/round" open "濃い回" >/dev/null 2>&1
+"$T/bin/round" close + "README 修正" >/dev/null 2>&1
+out=$("$T/bin/round" gaps 12 2>&1)
+! grep -q '薄い回が' <<<"$out"; check $? "  濃い回が入れば連続は切れる"
+
+echo "I0. preflight — 測る対象と、経路が実際に押す対象が一致しているか"
+# 2026-09-03 / H024-26b の1件目の回帰テスト。
+# preflight は `git push --dry-run origin "$BRANCH"` で**ローカルの同名 ref** を測っていた。
+# ハーネスが別ブランチを割り当てて起動する回では、その ref は放置されて遅れており、
+# **この回が絶対に押さない ref について「非 fast-forward。pull せよ」と報告していた。**
+# 同じ瞬間、実際に押す形（HEAD → 作業ブランチ）は clean な fast-forward だった。
+# **計器が測る対象は、経路が踏む対象と同じでなければ、何も測っていないのと同じである。**
+grep -q 'push --dry-run origin "HEAD:refs/heads/\$BRANCH"' "$SRC/bin/preflight"
+check $? "preflight は HEAD → 作業ブランチの形で測る（ローカルの古い同名 ref ではない）"
+grep -q 'push -q origin "HEAD:refs/heads/\$WORK_BRANCH"' "$SRC/bin/round"
+check $? "  round open の橋頭堡 push が同じ形で押す"
+grep -q 'push origin "HEAD:refs/heads/\$BRANCH"' "$SRC/bin/checkpoint"
+check $? "  checkpoint の締めの push も同じ形で押す（手順で覆っていた3件目）"
+
+echo "I. preflight — push 失敗の理由を取り違えないか"
+# 2026-08-30 の実障害の回帰テスト。遅れているだけの non-fast-forward を
+# 「push できない」と報告し、停止規則を誤発動させかけた。誤警報は1回分のコストになる。
+source "$SRC/bin/_common.sh"
+# _common.sh は `set -euo pipefail` を持っている。source はそれを**このテスト自身のシェルに効かせる。**
+# つまりこの行より後ろでは、assert が1件でも落ちた瞬間に errexit でスイートごと即死し、
+# [NG] も「結果: 成功N/失敗M」も出ないまま終わる。**失敗を報告できないテストになっていた。**
+# 2026-09-02、J 節を足して実際に踏んだ（変異テストで落ちるはずが、無言で終了した）。
+# 落ちることを確かめない限り、この壊れ方は永久に見えない。README「テストは、バグを検出できることまで
+# 確かめる」の実例がテスト自身に出た形である。errexit をここで戻す。
+set +e
+k=$(push_err_kind " ! [rejected]  branch -> branch (non-fast-forward)
+error: failed to push some refs to 'https://github.com/ioriorigin/loop'
+hint: Updates were rejected because the tip of your current branch is behind")
+[ "$k" = "stale" ]; check $? "non-fast-forward を stale と判定する"
+k=$(push_err_kind "remote: Permission to ioriorigin/loop.git denied to someone.
+fatal: unable to access 'https://github.com/ioriorigin/loop/': The requested URL returned error: 403")
+[ "$k" = "auth" ]; check $? "権限拒否を auth と判定する"
+k=$(push_err_kind "fatal: Authentication failed for 'https://github.com/ioriorigin/loop/'")
+[ "$k" = "auth" ]; check $? "認証失敗を auth と判定する"
+k=$(push_err_kind "fatal: unable to access: Could not resolve host: github.com")
+[ "$k" = "unknown" ]; check $? "未知のエラーを auth や stale に誤分類しない"
+
+# 2026-09-02 追加。コンテナが main の浅いクローンで作り直された回で実際に出た文面。
+# 分類が2つしか無かったため unknown に落ち、preflight が「原因不明。今すぐ原因を潰せ」と
+# 報告した。規則の停止条件（push 不能ならその回は原因究明だけ）が良性の状態で誤発動する。
+k=$(push_err_kind "error: src refspec claude/autonomous-ai-agent-design-jv7jv6 does not match any
+error: failed to push some refs to 'https://github.com/ioriorigin/loop'")
+[ "$k" = "noref" ]; check $? "ローカル ref の不在を noref と判定する（良性・認証は未測定）"
+
+# 逆方向。**良性側の分類を広げすぎない**ことを確かめる検出器。
+# noref は「ブランチを作れば直る」と読まれるので、本物の異常を巻き込むと素通りする。
+k=$(push_err_kind "fatal: 'origin' does not appear to be a git repository
+fatal: Could not read from remote repository.")
+[ "$k" != "noref" ]; check $? "remote 不在を noref（良性）に巻き込まない"
+
+
+echo "K. 外向き文書 — README の現行構成が実態から腐っていないか"
+# なぜこれがあるか:
+#   README は git の中にあるのに、2回続けて現実を偽った。08-31 12:51 に書き直した45分後に
+#   構成が変わり、以後3回の発火を経ても誰も直さなかった。メンター第2回・第3回で同じ指摘を受けている。
+#   **同じ指摘を2度受けた時点で、意志では守れないことが確定している。だから構造に落とす。**
+#   2026-09-02 に public になったので、この腐りは外から読める誤情報になった。
+readme="$SRC/README.md"; infra="$SRC/memory/INFRA.md"
+[ -f "$readme" ]; check $? "README.md が存在する"
+# 「現在の稼働構成」節だけを切り出す。歴史として残した旧方式の記述は対象外にする。
+cur=$(awk '/^## 現在の稼働構成/{f=1;next} /^###? /{if(f)exit} f' "$readme")
+[ -n "$cur" ]; check $? "  「現在の稼働構成」節を抽出できる"
+# 旧方式（束ね）の語が現行の構成表に残っていたら落とす。歴史節に出るのは正しいので節を限定している。
+! grep -qE '常駐ワーカー|永続セッション' <<<"$cur"
+check $? "  現行構成の節に旧方式（常駐ワーカー/永続セッション）が書かれていない"
+# 構成表の cron が、実際に空白検出が使っている間隔と一致するか。
+# 最初はこれを「INFRA.md に同じ文字列があるか」で書いた。**通ったが、バグを捕まえられなかった。**
+# INFRA.md は追記専用なので、過去の `44 * * * *` も永久に残っている。どんな古い cron を
+# README に書いても「INFRA のどこかにある」で通ってしまう。
+# 追記専用のファイルは、grep の対象としては「何でも肯定する計器」である。
+# だから文書ではなく、道具が持っている数値（bin/round の DEFAULT_INTERVAL_H）に突き合わせる。
+cron=$(grep -oE '44 [0-9*/]+ [0-9*/]+ [0-9*/]+ [0-9*/]+' <<<"$cur" | head -1)
+[ -n "$cron" ]; check $? "  現行構成の節に cron が書かれている"
+hf=$(awk '{print $2}' <<<"$cron")            # 時フィールド。*/12 なら 12 時間おき、* なら毎時
+case "$hf" in */*) rh="${hf#*/}";; '*') rh=1;; *) rh=24;; esac
+ih=$(grep -oE '^DEFAULT_INTERVAL_H=[0-9]+' "$SRC/bin/round" | cut -d= -f2)
+[ -n "$ih" ]; check $? "  bin/round が期待間隔の定数を持っている"
+[ "$rh" = "$ih" ]; check $? "  README の cron($cron)が round の期待間隔(${ih}h)と一致する"
+
+# 2026-09-02 追加。memory/ に置いた記憶ファイルが README の「構造」に全部載っているか。
+#
+# なぜ要るか: memory/BOOTSTRAP.md が README のどこにも載っていなかった。
+# **このファイルは「リポジトリを読んでも起動の仕方が分からない」を直すために作られたもの**であり、
+# それ自身が外向きの地図から漏れていた。目的1（他人が同じ構造を組める）に直接効く欠落である。
+# 上の cron 検査と同じ発想: 手で直すと必ずまた腐るので、実物どうしを突き合わせる。
+# 参照する側（README）ではなく**実在するファイルの側を基準にする。** 文書を基準にすると、
+# 消えたファイルの記述が残っていても通ってしまう（追記専用文書と同じ「何でも肯定する計器」）。
+missing=""
+for mf in "$SRC"/memory/*.md; do
+  b=$(basename "$mf")
+  grep -q "$b" "$readme" || missing="$missing $b"
+done
+[ -z "$missing" ]; check $? "  memory/ の全記憶ファイルが README に載っている（漏れ:${missing:-なし}）"
+
+echo
+echo "L. 停止条件が実際に発動できるか（2026-09-03 追加）"
+# **これまで一度も発動できなかった。** gaps は密度の連続を台帳の末尾から遡って数えるが、
+# gaps を呼ぶのは bin/recall だけで、recall は round open の**直後**に走る。
+# つまり末尾は必ず「いま走っている回」（mark=?）であり、遡りはそこで必ず切れていた。
+# 薄い回を何回続けても停止条件は沈黙する。参照する量を作った（第3回診断の宿題）だけでは足りず、
+# **読む側が末尾で必ず躓く形になっていた。** 計器を足して、計器が読まれない形にしていた。
+ledger() { printf '# 発火台帳\n' > "$L"; }
+row() { # row <連番> <印|open> [根拠]
+  local e=$((1788000000 + $1 * 43200))
+  printf '\n- `R%s UTC / R%s JST` epoch=%s 定期発火\n' "$1" "$1" "$e" >> "$L"
+  [ "$2" = open ] && return 0
+  printf '  close `C%s UTC / C%s JST` elapsed=0.2h mark=%s for=%s %s\n' \
+    "$1" "$1" "$2" "$e" "${3:-根拠}" >> "$L"
+}
+
+# 検出器。ここが落ちなければ、この節は何も守っていない
+ledger; row 1 -; row 2 -; row 3 -; row 4 open
+out=$("$T/bin/round" gaps 12 2>&1)
+grep -q '薄い回が 3 回連続' <<<"$out"
+check $? "薄い回3連続は、いま走っている回が末尾にあっても停止条件を出す"
+
+# 煙感知器。「常に出す」実装でも上が通ってしまうので、逆向きを固定する
+ledger; row 1 +; row 2 +; row 3 +; row 4 open
+out=$("$T/bin/round" gaps 12 2>&1)
+grep -q '薄い回が' <<<"$out"; [ $? -ne 0 ]
+check $? "  濃い回が続いている間は停止条件を出さない"
+
+# 上の2件は、末尾を起点から外す処理を戻す変異では**どちらも落ちない。**
+# 「?」を薄い回と数える規則が入ったので、末尾を数に入れても連続は 3 に届いてしまうためである。
+# つまり上の2件は「元の欠陥の再発」は捕まえるが、**末尾の扱いそのものは固定していない。**
+# 末尾を数に入れた実装は、こんどは**1回早く**停止条件を出す（偽陽性）。そちらで固定する。
+ledger; row 1 +; row 2 -; row 3 -; row 4 open
+out=$("$T/bin/round" gaps 12 2>&1)
+grep -q '薄い回が' <<<"$out"; [ $? -ne 0 ]
+check $? "  いま走っている回を薄い回に数え、1回早く停止条件を出すことがない"
+
+# 締めを飛ばした回は「濃かった証拠を1つも残さずに終わった回」である。薄い回と数える（厳格化）
+ledger; row 1 -; row 2 -; row 3 open; row 4 open
+out=$("$T/bin/round" gaps 12 2>&1)
+grep -q '薄い回が 3 回連続' <<<"$out"
+check $? "  締めを飛ばした回は薄い回として連続に数える"
+grep -q '締めを飛ばした回が 1 件' <<<"$out"
+check $? "  締めを飛ばした回を、いま走っている回と混ぜずに数える"
+
+# close 機構より前の回は原理的に閉じられない。毎回警告し続ければ、計器は読まれなくなる
+# 印を持たない古い回を薄い回として遡ると、**過去の1件だけで連続3件に届いてしまう。**
+# だから薄い回を1件だけ挟んだ形で固定する（濃い回を挟むと境界を外しても連続が切れて落ちない）。
+ledger; row 1 open; row 2 open; row 3 -; row 4 open
+out=$("$T/bin/round" gaps 12 2>&1)
+grep -q '薄い回が' <<<"$out"; [ $? -ne 0 ]
+check $? "  close 機構より前の回を薄い回の連続に数えない"
+grep -q 'close 機構より前の回' <<<"$out"
+check $? "  閉じられない過去は、警告ではなく事実として区別して出す"
+
+# times は 2026-09-02 から recall に呼ばれていたが、実装が無く exit 2 していた。
+# recall 側の `2>/dev/null || echo "(所要時間をまだ読めない)"` が、**壊れた節を良性に見せていた。**
+ledger; row 1 +; row 2 +; row 3 open
+out=$("$T/bin/round" times 2>&1)
+check $? "round times が実装されている（recall が1日以上、無い副命令を呼んでいた）"
+grep -q '最長' <<<"$out"; check $? "  全期間の外れ値を出す（gaps の直近5件では消える）"
+
+# 型のほうを塞ぐ。実物どうしを突き合わせ、recall が呼ぶ副命令が全部実装されているかを見る。
+# 手で直すだけなら、次に副命令を増やしたときまた同じ穴が開く。
+badsub=""
+for s in $(grep -oE '"\$ROOT/bin/round" [a-z]+' "$SRC/bin/recall" | awk '{print $2}' | sort -u); do
+  grep -qE "^  $s\)" "$SRC/bin/round" || badsub="$badsub $s"
+done
+[ -z "$badsub" ]
+check $? "  recall が呼ぶ round の副命令が全部実装されている（未実装:${badsub:-なし}）"
+
+echo
+echo "── 結果: 成功 $pass / 失敗 $fail"
+if [ "$fail" -gt 0 ]; then
+  echo ">> 壊れている。直すまで本番で使うな。"
+  exit 1
+fi
+echo "全経路が通った。"

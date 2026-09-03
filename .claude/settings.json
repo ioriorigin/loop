@@ -1,0 +1,39 @@
+{
+  "_comment": "許可プロンプトは邪魔なものではなく最後の防壁である。.claude/rules/autonomous-loop.md の禁止事項（特に main への直接 push の禁止）を機械で守れる形に絞ること。ワイルドカードで開けると規則が文章だけの飾りになる。",
+  "permissions": {
+    "allow": [
+      "Bash(git clone -b claude/autonomous-ai-agent-design-jv7jv6 https://github.com/ioriorigin/loop:*)",
+      "Bash(git fetch origin claude/autonomous-ai-agent-design-jv7jv6:*)",
+      "Bash(git pull origin claude/autonomous-ai-agent-design-jv7jv6:*)",
+      "Bash(git push -u origin claude/autonomous-ai-agent-design-jv7jv6)",
+      "Bash(git push origin claude/autonomous-ai-agent-design-jv7jv6)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git rev-list:*)",
+      "Bash(git ls-remote:*)",
+      "Bash(git checkout claude/autonomous-ai-agent-design-jv7jv6)",
+      "Bash(./bin/preflight)",
+      "Bash(./bin/recall:*)",
+      "Bash(./bin/round:*)",
+      "Bash(./bin/log:*)",
+      "Bash(./bin/note:*)",
+      "Bash(./bin/hypo:*)",
+      "Bash(./bin/selftest)",
+      "Bash(./bin/checkpoint:*)"
+    ],
+    "deny": [
+      "Bash(git push origin main:*)",
+      "Bash(git push:* main)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git config:*)",
+      "Bash(git remote set-url:*)"
+    ]
+  }
+}

@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# 些細な気づきを inbox に一行追記する。ログにするほどでもないものは全部ここ。
+#   使い方: ./bin/note "気づいたこと"
+source "$(dirname "$0")/_common.sh"
+
+body="${*:?usage: note <text>}"
+f="$MEM/notes/inbox.md"
+mkdir -p "$(dirname "$f")"
+[ -f "$f" ] || printf '# 気づきの受け皿\n\n些細でも書く。後から読み返して意味が出るものがある。\n' > "$f"
+
+printf -- '\n- `%s` %s\n' "$(ts_both)" "$body" >> "$f"
+echo "noted -> ${f#"$ROOT/"}"

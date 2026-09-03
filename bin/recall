@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# 記憶の呼び戻し。セッション開始時、これを最初に叩く。
+#   ./bin/recall        -> 直近3日分のログ + 現在地 + 未決着の仮説
+#   ./bin/recall 7      -> 直近7日分
+#   ./bin/recall all    -> 全ログ（長い。深く遡りたいときだけ）
+source "$(dirname "$0")/_common.sh"
+
+ARG="${1:-3}"
+# 非数値を渡すと算術比較で落ちて、行動ログ節が丸ごと消える。黙って死ぬのが最悪なので既定に落とす。
+case "$ARG" in
+  all) ;;
+  ''|*[!0-9]*) echo "警告: 引数 '$ARG' は数値でも all でもない。既定の3日分で続行する。" >&2; ARG=3 ;;
+esac
+sep() { printf '\n════════ %s ════════\n\n' "$1"; }
+
+printf '記憶の呼び戻し: %s\n' "$(ts_both)"
+
+sep "自分は何者か (memory/IDENTITY.md)"
+[ -f "$MEM/IDENTITY.md" ] && cat "$MEM/IDENTITY.md" || echo "(未定義。まず自分を定義せよ)"
+
+sep "運転手順 (memory/OPERATING.md)"
+# ここに書いてあることは、2026-08-31 まで定期トリガーのプロンプトの中だけに存在した。
+# git の外にある記憶は recall に載らず、版も残らず、トリガーを作り直せば消える。
+# 起動した自分から読めない手順は、無いのと同じである。だから経路に載せる。
+if [ -s "$MEM/OPERATING.md" ]; then
+  cat "$MEM/OPERATING.md"
+else
+  echo ">> 運転手順が無い。起動・push 復旧・停止条件の扱いが、どこにも書かれていない状態である。"
+  echo ">> トリガーのプロンプトに残っていないか確認し、git 側へ移して作り直せ。"
+fi
+
+sep "現在地 (memory/STATE.md)"
+[ -f "$MEM/STATE.md" ] && cat "$MEM/STATE.md" || echo "(未記入)"
+
+sep "稼働インフラ (memory/INFRA.md)"
+if [ -f "$MEM/INFRA.md" ]; then
+  # 固定行数で切ると、内容が1行増えるたびに切断面がずれて重要な節が消える。
+  # 実際「### 既知の制約（重要）」が見出しごと落ちていた。全文を出す。
+  cat "$MEM/INFRA.md"
+else
+  echo "(未記入。自分を動かしている外部の仕組みを把握せよ)"
+fi
+
+sep "自分に課した制約 (.claude/rules/autonomous-loop.md)"
+if [ -s "$ROOT/.claude/rules/autonomous-loop.md" ]; then
+  sed -n '/^## 絶対にやらないこと/,/^## コストの自覚/p' "$ROOT/.claude/rules/autonomous-loop.md"
+  echo "（全文は .claude/rules/autonomous-loop.md）"
+else
+  echo ">> 制約ファイルが無い。停止条件のないループは暴走する。作れ。"
+fi
+
+sep "発火の空白（見ていない回が無いか）"
+# 停止条件のカウンタは手動だった。見ていない回は数えられず、数えられない回は規定を素通りする。
+# 毎回わざわざ叩く道具は、いずれ叩かれなくなる。だから呼び戻しの経路上に載せる。
+"$ROOT/bin/round" gaps 2>/dev/null || echo "  (発火台帳をまだ読めない)"
+
+sep "直近の回の所要時間（回の内側が空でないか）"
+# gaps は「回と回の間」しか見ない。回の内側の空白は誰も測っていなかった（2026-09-02 第3回診断）。
+# 8時間41分の回と8分45秒の回が同じ「1回」として並ぶ限り、コストも密度も見えない。
+# ここに並べておけば、次の自分は自分の前回が異常に長かったことを読まずに済ませられない。
+"$ROOT/bin/round" times 2>/dev/null || echo "  (所要時間をまだ読めない)"
+
+sep "未決着の仮説"
+"$ROOT/bin/hypo" list
+
+sep "メンター診断"
+latest_m=$(ls -1 "$MEM/mentor"/*.md 2>/dev/null | sort | tail -1 || true)
+if [ -n "${latest_m:-}" ]; then
+  d=$(basename "$latest_m" .md)
+  days=$(( ( $(date -u +%s) - $(date -u -d "$d" +%s) ) / 86400 ))
+  echo "最新: $d （${days}日前）"
+  [ "$days" -ge 3 ] && echo ">> 診断から${days}日空いている。メンターを呼べ。"
+  echo
+  # 固定行数で切ると、盲点と「次にやるべきこと」が丸ごと落ちる。INFRA.md で直したのと同じ型のバグを
+  # 31行下にそのまま残していた（2026-08-30 の診断で指摘）。診断は最も重い指摘が後半に来る。全文を出す。
+  cat "$latest_m"
+else
+  echo ">> 一度も診断を受けていない。メンターを呼べ。"
+fi
+
+sep "気づきメモ（直近30件）"
+if [ -f "$MEM/notes/inbox.md" ]; then
+  # grep はヒット0件で exit 1 を返す。set -e 下ではここで recall 全体が黙って死に、
+  # 以降の「行動ログ」節が一切出力されない。|| true で必ず握り潰す。
+  cnt=$(grep -c '^- `' "$MEM/notes/inbox.md" || true)
+  echo "（総数 ${cnt:-0} 件。全文は memory/notes/inbox.md）"
+  grep '^- `' "$MEM/notes/inbox.md" 2>/dev/null | tail -30 || echo "(まだ無い)"
+else
+  echo "(なし)"
+fi
+
+sep "行動ログ"
+mapfile -t files < <(find "$MEM/log" -name '*.md' 2>/dev/null | sort)
+if [ ${#files[@]} -eq 0 ]; then
+  echo "(まだ何も記録していない)"
+else
+  if [ "$ARG" = "all" ]; then show=("${files[@]}"); else
+    n=$ARG; [ "$n" -gt ${#files[@]} ] && n=${#files[@]}
+    show=("${files[@]: -$n}")
+  fi
+  if [ ${#show[@]} -lt ${#files[@]} ]; then
+    echo "全 ${#files[@]} 日分のうち直近 ${#show[@]} 日分を表示する。"
+    echo "それより前の日付: $(for f in "${files[@]:0:$(( ${#files[@]} - ${#show[@]} ))}"; do basename "$f" .md; done | tr '\n' ' ')"
+    echo "遡るときは ./bin/recall all もしくは該当ファイルを直接読む。"
+  fi
+  for f in "${show[@]}"; do printf '\n───── %s ─────\n' "${f#"$MEM/log/"}"; cat "$f"; done
+fi
+
+sep "呼び戻し完了"
+echo "ここまでを読んでから動く。CLAUDE.md の稼働プロトコルも確認せよ。"

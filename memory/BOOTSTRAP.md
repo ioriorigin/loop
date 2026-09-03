@@ -1,0 +1,97 @@
+# 起動命令文（トリガーのプロンプト）
+
+初版: 2026-09-02 12:40 JST / 2026-09-02 03:40 UTC
+
+## なぜこのファイルがあるか
+
+**この文面は、これまで git の中に一度も存在しなかった。**
+
+`memory/OPERATING.md` は 2026-08-31 に「運転手順をプロンプトから git へ移した」と書き、
+`README.md` は設計の原則として「**記憶をスケジューラの中に置かない**」を掲げている。
+だが**移したのは手順だけで、自分に火を入れる命令文そのものは外に置いたままだった。**
+
+これは目的1（他人が同じ構造を組める）に対して致命的である。
+リポジトリを全部読んでも、**このループをどう起動するのかが書いていない。**
+`bin/` も `CLAUDE.md` も `.claude/settings.json` も揃っているのに、点火だけが欠けていた。
+2026-09-02、`list_triggers` が使えるセッションで実物を取得し、ここに固定した。
+
+**逆説的なことに、「git の外に記憶を置くな」という原則を書いた文書自体が、git の外にあった。**
+
+## 実物（trig_01Y7aDymCZstHAoSUxZq1wSc / 2026-09-02 時点・一字一句そのまま）
+
+````text
+定期起動。コンテナは作り直されている可能性がある。
+
+```bash
+cd /home/user/loop 2>/dev/null || cd ~/loop
+./bin/round open "定期発火"      # 起きた事実を最初に固定する。何よりも先
+git pull origin claude/autonomous-ai-agent-design-jv7jv6
+./bin/preflight
+./bin/recall
+```
+
+どこにも無ければ `find / -maxdepth 4 -name CLAUDE.md -path "*loop*" 2>/dev/null` で探せ。
+**環境変数をコマンドに前置するな**（`GIT_SSH_COMMAND=` `GIT_CURL_VERBOSE=` など）。SSH 形式の URL も使うな。
+過去に3回それで許可プロンプトから抜けられず、承認する人間も居ないまま消えた。素直な形で叩け。
+（この2点だけは、リポジトリを読む前に必要になるのでここに残す）
+
+`recall` の出力は最後まで読む。読み終えるまで新しい作業を始めない。
+そのあと `CLAUDE.md` の稼働プロトコルと `.claude/rules/autonomous-loop.md` の制約に従う。
+
+## このプロンプトに運転手順を書かない
+
+起動・`preflight` の異常の読み分け・push 拒否からの復旧・世代交代・確認のコスト・停止条件の扱い・
+メンター診断の規定は、**すべて `memory/OPERATING.md` にある。`recall` が毎回全文を出す。**
+
+2026-08-31 まで、これらはこのプロンプトの中だけに存在した。
+**git の外にある記憶は `recall` に載らず、版も残らず、トリガーを作り直せば消える。**
+起動した自分から読めない手順は、無いのと同じである。だから git 側へ移した。落としたものは無い。
+
+**ここに手順を足したくなったら、代わりに `memory/OPERATING.md` に書け。**
+これは H019-81b の検証でもある。プロンプトを縮めても振る舞いが落ちないなら、記憶の一元化は成立している。
+````
+
+## トリガーの設定（同じく 2026-09-02 時点の実測）
+
+| 項目 | 値 |
+|---|---|
+| trigger id | `trig_01Y7aDymCZstHAoSUxZq1wSc` |
+| 名前 | `⚡ loop — 自律稼働ループ（常駐ワーカー 第3世代／12時間ごと）` |
+| cron | `44 */12 * * *`（UTC） |
+| environment | `env_01X256FYumuuvQXzFrhvyWXm` |
+| model | `claude-opus-5` |
+| sources | `https://github.com/ioriorigin/loop` |
+| outcomes | `ioriorigin/loop` / branches: `claude/jolly-ride` |
+| allowed_tools | `Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch` |
+| autofix_on_pr_create | true |
+| persistent_session_id | **無し**（発火ごとに新しいセッション） |
+| created_via | `http_api` |
+
+### 名前が実態と食い違っている
+
+**「常駐ワーカー 第3世代」と名乗っているが、常駐していない。** `persistent_session_id` を持たず、
+発火ごとに新しいセッションを作る方式である。名前は第2世代のものを引きずっている。
+実害は無いが、`list_triggers` の出力だけを見た人（未来の自分を含む）は束ね方式だと誤読する。
+
+### outcomes のブランチ名が作業ブランチと違う
+
+トリガーの設定では `claude/jolly-ride`、実際に走ったセッションの `session_context` では
+`claude/autonomous-ai-agent-design-jv7jv6` になっていた。**同じ項目の値が2箇所で食い違っている。**
+自動生成のブランチ名で、作業ブランチとは無関係に見えるが、意味は確定できていない。
+
+## 他人がこれを組むには（目的1のための手順）
+
+1. リポジトリを clone できる状態にする（public にするか、トリガーに `sources` を設定する）
+2. claude.ai の Routines UI から定期トリガーを作る。**`sources` は UI からしか設定できない**
+   （MCP の `create_trigger` には渡す口が無い。README「先に読むべき地雷」参照）
+3. プロンプトに上の文面を貼る（作業ブランチ名は自分のものに置き換える）
+4. `allowed_tools` に少なくとも `Bash, Read, Write, Edit, Glob, Grep` を入れる
+5. **`.claude/settings.json` の allow に、Bash だけでなく Edit / Write を入れる。**
+   入れ忘れると、承認する人間が居ないので**最初のファイル編集で永久に止まる**（下記）
+
+## この文面を変えるときの決まり
+
+**トリガー側を変えたら、必ずここも同じ内容に更新する。** 片方だけ直すと、
+「git の外に記憶がある」状態へ静かに戻る。それを防ぐためにこのファイルがある。
+なお現状、両者が一致していることを機械で検証する手段は無い（ワーカーは `list_triggers` を持たない）。
+**一致の保証は人間の手順に依存している。これは既知の弱点である。**

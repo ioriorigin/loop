@@ -1,0 +1,319 @@
+#!/usr/bin/env bash
+# 発火台帳。**起きた瞬間に1行書く。締めのときではない。**
+#   ./bin/round open [メモ]        起動直後に呼ぶ。この回が起きた事実を確定させる
+#   ./bin/round close <+|-> 根拠   締めに呼ぶ。所要時間と、その回が濃かったか薄かったかを残す
+#   ./bin/round list               記録された発火を並べる
+#   ./bin/round gaps [時間]        空白＝見ていない発火と、直近の回の密度を出す
+#   ./bin/round times              全期間の所要時間（最長・最短・平均）。外れ値を5回で失わないため
+#
+# なぜ「起きた瞬間」なのか。
+# 締めのときに書く設計は、その回が途中で死ぬと1行も残さない。2026-08-30 に4回それで全損した。
+# 記録は、失われうる作業の**前**に置く。橋頭堡 push と同じ原理をここにも適用する。
+#
+# なぜ台帳が要るのか。
+# 停止条件「薄い回が3回連続したら頻度を下げる」のカウンタが手動だった。
+# 「見ていない回は数えられず、数えられない回は停止条件を素通りする」（第2回診断）。
+# 発火が機械的に並べば、抜けた回は間隔の空白として自動的に浮かぶ。
+#
+# なぜ close が要るのか（2026-09-02 追加。第3回診断の盲点1）。
+# open だけの台帳は「回と回の間の空白」しか見ていない。**回の内側の空白は誰も測っていなかった。**
+# 実際、8時間41分走って commit ゼロの回と、8分45秒の回が、同じ「1回」として並んでいた。
+# gaps は「見落とした発火は無い」と答える。健全である、と計器は言う。
+# close が所要時間と密度の印を残せば、その空白は次の自分の recall に自動的に突きつけられる。
+#
+# 印は `+`（濃い）か `-`（薄い）。判定基準は .claude/rules/autonomous-loop.md「薄い回の定義」。
+# 外向きの成果物・決着した仮説・修正した欠陥が全部ゼロなら薄い回である。
+# 自己申告なので必ず甘くなる。だから根拠を必須にした。**書かずに濃いと自称した回は薄い回と数える。**
+source "$(dirname "$0")/_common.sh"
+
+F="$MEM/rounds.md"
+DEFAULT_INTERVAL_H=12
+
+[ -f "$F" ] || printf '# 発火台帳\n\n追記のみ。起動した瞬間に1行書く。締めのときではない。\n空白は `./bin/round gaps` で検出する。\n' > "$F"
+
+case "${1:-list}" in
+  open)
+    note="${2:-}"
+    myepoch=$(date -u +%s)
+    printf -- '\n- `%s` epoch=%s %s\n' "$(ts_both)" "$myepoch" "$note" >> "$F"
+    # **どの open が自分のものかを、自分のコンテナに覚えておく**（2026-09-02 追加）。
+    # 台帳は全セッションで共有だが、この印はコンテナごとに独立している（git 管理外）。
+    # これが無いと close は「台帳の最後の open」に付く。**並行する回があると他人の回に付く。**
+    # 実際この日、00:45 の回の close が 01:13 の回に付き、
+    # 自分の回は未クローズのまま、他人の回に close 行が2本並んだ。
+    printf '%s open\n' "$myepoch" > "$ROOT/.round-current" 2>/dev/null || true
+    echo "round opened -> ${F#"$ROOT/"}"
+    # 台帳行をその場で外へ固定する（第3回診断「次にやるべきこと1」）。
+    # **「記録は失われうる作業の前に置く」と書きながら、その台帳行の永続化だけが
+    # その回のいちばん最後に来る push に依存していた。** 08-31 12:45 の回は open から
+    # 8時間41分 commit ゼロで走っており、コンテナが回収されていれば丸ごと消えていた。
+    # 橋頭堡 push（H008 verified）を発明した本人が、台帳を橋頭堡にしていなかった。
+    #
+    # **ここでは絶対に止まらない。** push できない回でもローカル記録は残す。
+    # 押せない理由の読み分けは preflight と memory/OPERATING.md §3 の仕事であって、
+    # 起動手順の1行目が判断することではない。
+    #
+    # push 先はブランチを固定する。ハーネスが別のブランチを割り当てて起動する回が実在し
+    # （2026-09-02 の対話回は claude/current-status-check-v3vv2c で始まった）、
+    # そこへ押すと記録は round gaps が読む場所から外れて次の自分から見えなくなる。
+    # **見えない場所に置いた記録は、記録ではない。** その場合は押さずに、そう言う。
+    if ! git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+      echo "  （git 管理外。橋頭堡 push は省略）"
+    elif ! git -C "$ROOT" -c user.name="loop" -c user.email="ioriorigin@gmail.com" \
+            commit -q -m "橋頭堡: 発火を台帳に固定する
+
+起きた事実を、失われうる作業の前に外部へ固定する。
+push に失敗してもこの回は止まらない（bin/round の設計）。
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" -- "$F" >/dev/null 2>&1; then
+      echo "  （台帳に差分が無い。橋頭堡 push は省略）"
+    else
+      # **押す先はブランチ名ではなく ref で指す（2026-09-03 修正。H024-26b の2件目）。**
+      #
+      # 旧実装は「いまのブランチが作業ブランチでなければ push しない」だった。
+      # ところがハーネスが別のブランチを割り当てて起動する回は、**直近3回すべてである。**
+      # つまり橋頭堡 push は、**それが最も要る回で一度も動いていなかった。**
+      # 台帳行の永続化を「その回の最後の push」から切り離すために作った仕組みが、
+      # 実際に呼ばれる状況では常に「押さない」側へ落ちていた。
+      # 計器を足しても、呼ばれる瞬間に渡る入力が常に退化していれば働かない（H024-26b の型）。
+      #
+      # 割り当てブランチは、作業ブランチの tip に橋頭堡 commit が乗っただけの形である。
+      # だから HEAD を**作業ブランチの ref へ**押せば fast-forward で通る。
+      # **ff かどうかの判定はサーバに任せる。** ローカルの origin/<作業ブランチ> は
+      # 起動直後で古いことがあり（pull はこの後に走る）、こちらでの先読みは当てにならない。
+      # ref を明示しているので、弾かれても割り当てブランチが origin に作られることはない。
+      cur_b=$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?")
+      if git -C "$ROOT" push -q origin "HEAD:refs/heads/$WORK_BRANCH" >/dev/null 2>&1; then
+        if [ "$cur_b" = "$WORK_BRANCH" ]; then
+          echo "  橋頭堡 push ok — この回が起きた事実は外部に残った"
+        else
+          echo "  橋頭堡 push ok — いまは $cur_b にいるが、台帳行は $WORK_BRANCH へ固定した"
+        fi
+      else
+        echo "  ** 橋頭堡 push 失敗。台帳はローカルにのみ存在する。preflight の判定に従え **"
+        if [ "$cur_b" != "$WORK_BRANCH" ]; then
+          echo "  ** いまは $cur_b。fast-forward でないので、作業ブランチへ移して押し直せ **"
+        fi
+      fi
+    fi
+    ;;
+  close)
+    mark="${2:-}"; note="${3:-}"
+    case "$mark" in
+      +|-) ;;
+      *) echo "usage: round close <+|-> \"根拠\"  (+ が濃い回、- が薄い回)" >&2; exit 2 ;;
+    esac
+    if [ -z "$note" ]; then
+      echo ">> 根拠を書け。規則「薄い回の定義」は、外向きの成果物・決着した仮説・修正した欠陥の" >&2
+      echo ">> どれが非ゼロだったかの併記を求めている。書かずに濃いと自称した回は薄い回と数える。" >&2
+      exit 2
+    fi
+    # _common.sh の set -euo pipefail が効いている。open 行が1本も無いと grep が 1 を返し、
+    # pipefail でこの代入ごと失敗して**何も出さずに死ぬ。** 実際 selftest の新規台帳で踏んだ。
+    # 「まだ open が無い」は異常ではなく、下で "?" として扱うべき状態である。
+    # **自分の回の open を閉じる。台帳の最後の open ではない。**
+    # 台帳は全セッションが同じファイルに追記する。並行する回があると「最後の open」は他人のものになる。
+    # .round-current はこのコンテナだけが持つ印なので、並行しても取り違えない。
+    # 印が無い回（古い台帳・印を消した回）は、従来どおり最後の open に落とす。
+    o=""; state=""
+    if [ -f "$ROOT/.round-current" ]; then
+      read -r o state < "$ROOT/.round-current" || true
+    fi
+    # 同じ回を二度閉じない。二重の close は、どちらが正しいか誰にも分からない記録である。
+    # **判定は台帳の grep ではなく、この印の状態で行う。**
+    # 台帳を `for=` で grep する実装も書いたが、**同じ秒に開いた別の回と epoch が衝突して
+    # 正当な close まで拒否した**（selftest の連続する回で実際に落ちた）。
+    # 秒単位の epoch は、この用途では一意な鍵にならない。
+    if [ "$state" = "closed" ]; then
+      echo ">> この回（epoch=$o）は既に close 済み。二重に締めない。" >&2
+      echo ">> 締め直したいなら、何を訂正するのかを台帳に追記してから行うこと。" >&2
+      exit 2
+    fi
+    # 印が無い回（この変更より前に開いた回・印を失った回）は、従来どおり最後の open に落とす。
+    # 拒否はしない。**新しい安全装置のために、古い回が締められなくなってはいけない。**
+    #
+    # **ただし、その帰属は確かめられていない。だから `for=?` と書く。**
+    # 2026-09-02、印を持たない回がこの経路を通り、**並行していた他人の回に2度も close を付けた。**
+    # 1度目は取り違えに気づいて訂正したのに、訂正のあとに同じ経路でもう一度付けている。
+    # 確かめていない帰属を、確かめた帰属と同じ書き方で残したのが原因である。
+    # **不確かなものは、不確かだと書く。** 読む側（gaps）は `for=?` を従来どおり直近の open に落とす。
+    unverified=""
+    if [ -z "$o" ]; then
+      o=$(grep -E '^- `.*epoch=' "$F" 2>/dev/null | tail -1 | grep -oE 'epoch=[0-9]+' | cut -d= -f2 || true)
+      unverified=1
+      echo ">> この回の印（.round-current）が無い。**どの open が自分のものか確かめられない。**" >&2
+      echo ">> 台帳の最後の open に落とすが、並行する回があればそれは他人の回である。" >&2
+      echo ">> close 行には for=? と書く。帰属を確かめたいなら台帳を読んで訂正を追記すること。" >&2
+    fi
+    now=$(date -u +%s)
+    if [ -n "$o" ]; then
+      dur=$(awk -v a="$now" -v b="$o" 'BEGIN{printf "%.1f", (a-b)/3600}')
+    else
+      dur="?"   # open が無い回。台帳の順序が壊れている合図なので黙って 0 にしない
+    fi
+    # for= はどの open の close なのかを明示する。**並行する回を、後から読む自分が取り違えないため。**
+    key="${o:-?}"; [ -n "$unverified" ] && key="?"
+    printf -- '  close `%s` elapsed=%sh mark=%s for=%s %s\n' "$(ts_both)" "$dur" "$mark" "$key" "$note" >> "$F"
+    # 印は消さず「閉じた」と書き換える。**消すと、二度目の close が
+    # 「印の無い回」として最後の open に落ち、他人の回に付いてしまう。**
+    [ -n "$o" ] && printf '%s closed\n' "$o" > "$ROOT/.round-current" 2>/dev/null || true
+    echo "round closed -> ${dur}h / ${mark} / ${F#"$ROOT/"}"
+    ;;
+  list)
+    grep -E '^- `.*epoch=' "$F" || echo "(発火の記録なし)"
+    ;;
+  gaps)
+    h="${2:-$DEFAULT_INTERVAL_H}"
+    grep -E '^- `.*epoch=' "$F" 2>/dev/null | awk -v maxgap="$((h*3600))" -v ih="$h" '
+      {
+        # 表示用のラベル（最初のバッククォート内）と epoch を取り出す
+        lab = $0
+        if (match(lab, /`[^`]+`/)) lab = substr(lab, RSTART+1, RLENGTH-2)
+        if (!match($0, /epoch=[0-9]+/)) next
+        e = substr($0, RSTART+6, RLENGTH-6) + 0
+        if (prev > 0 && e - prev > maxgap * 1.5) {
+          printf "  [空白] %.1f 時間あいている（期待 %s 時間）: %s → %s\n", (e-prev)/3600, ih, plab, lab
+          n++
+        }
+        prev = e; plab = lab; c++
+      }
+      END {
+        if (c == 0) { print "  (発火の記録なし)"; exit }
+        if (n == 0) printf "  記録された発火 %d 件。見落とした発火は無い（期待間隔 %s 時間）\n", c, ih
+        else        printf "  ** %d 箇所の空白。見ていない発火がある可能性が高い **\n", n
+      }
+    '
+    # 回の内側 — 直近の回の所要時間と密度。空白検出と同じ場所に出す。
+    # gaps は recall が毎回叩くので、ここに出せば次の自分の目に必ず入る。
+    awk '
+      /^- `.*epoch=/ {
+        lab = $0
+        if (match(lab, /`[^`]+`/)) lab = substr(lab, RSTART+1, RLENGTH-2)
+        sub(/ UTC.*/, "", lab)
+        n++; L[n] = lab; D[n] = "?"; M[n] = "?"; T[n] = "(未クローズ)"
+        if (match($0, /epoch=[0-9]+/)) IDX[substr($0, RSTART+6, RLENGTH-6)] = n
+        next
+      }
+      /^  close `/ {
+        if (n == 0) next
+        # for= があれば、その open に付ける。**並行する回があると「直近の open」は他人のものになる。**
+        # 実際 2026-09-02、00:45 の回の close が 01:13 の回に付いた。for= はそれを防ぐ。
+        # 印の無い古い close 行は、従来どおり直近の open に落とす（過去の記録は読めなくならない）。
+        k = n
+        if (match($0, /for=[0-9]+/)) {
+          e = substr($0, RSTART+4, RLENGTH-4)
+          if (e in IDX) k = IDX[e]
+        }
+        if (match($0, /elapsed=[^ ]+/)) D[k] = substr($0, RSTART+8, RLENGTH-8)
+        if (match($0, /mark=[+-]/))     M[k] = substr($0, RSTART+5, 1)
+        t = $0; sub(/^.*mark=[+-] ?/, "", t); sub(/^for=[0-9]+ ?/, "", t); T[k] = t
+        next
+      }
+      END {
+        if (n == 0) exit
+        printf "\n  直近の回（所要時間と密度）\n"
+        s = n - 4; if (s < 1) s = 1
+        for (i = s; i <= n; i++) printf "    %s  %6s  %s  %s\n", L[i], D[i], M[i], substr(T[i], 1, 46)
+
+        # **`?` は3つの別の状態を1文字に潰していた。** これが停止条件を殺していた原因である。
+        #   (a) close 機構より前に開かれた回 — 印が無く、**原理的にもう閉じられない**
+        #   (b) 締めを飛ばした／途中で死んだ回 — 本物の信号。数えるべきもの
+        #   (c) いま走っている回 — 正常。まだ閉じる番が来ていないだけ
+        # 3つを同じ「未クローズ」として毎回数えると、計器は永久に警告を出し続けて読まれなくなる。
+        # 分けて数える。**未知を既定値に潰さない**（memory/OPERATING.md §3 と同じ型）。
+
+        # 密度が読める最初の回＝close 機構が入った世代の始まり。ここより前が (a)。
+        gen = 0
+        for (i = 1; i <= n; i++) if (M[i] != "?") { gen = i; break }
+        if (gen == 0) gen = n + 1
+
+        # **末尾の1件は (c)「いま走っている回」である。連続の起点から外す。**
+        # gaps を呼ぶのは bin/recall だけで、recall は round open の直後に走る。
+        # つまり末尾は**必ず**未クローズであり、そこから遡ると連続は初回で必ず切れる。
+        # 2026-09-03 に実測して確認した。薄い回を3回続けても停止条件は一度も出ない。
+        # 「薄い回が3回連続したら止まる」は、計器を足したあとも**発動できないままだった。**
+        # 参照する量を作っただけでは足りない。**読む側が末尾で必ず躓く形になっていた。**
+        last = n
+        if (M[n] == "?") last = n - 1
+
+        thin = 0
+        for (i = last; i >= gen && i > last - 3; i--) {
+          if (M[i] == "-") thin++
+          # (b) は薄い回と数える。**濃かった証拠を1つも残さずに終わった回である。**
+          # 規則「薄い回の定義」は外向きの成果物・決着した仮説・修正した欠陥が全部ゼロなら薄い、
+          # と定めており、締めを飛ばした回はそのどれも申告していない。緩和ではなく厳格化にあたる。
+          else if (M[i] == "?") thin++
+          else break
+        }
+        if (thin >= 3) {
+          printf "\n  ** 薄い回が %d 回連続している。**\n", thin
+          printf "  .claude/rules/autonomous-loop.md の停止条件に該当する。\n"
+          printf "  頻度を下げるか一時停止し、判断と理由を STATE.md と行動ログに書くこと。\n"
+        }
+
+        skipped = 0
+        for (i = gen; i <= last; i++) if (M[i] == "?") skipped++
+        if (skipped > 0)
+          printf "\n  ** 締めを飛ばした回が %d 件ある。密度を申告せずに終わった回である **\n", skipped
+        legacy = gen - 1
+        if (legacy > 0)
+          printf "\n  (うち %d 件は close 機構より前の回。もう閉じられないので連続には数えない)\n", legacy
+      }
+    ' "$F"
+    ;;
+  times)
+    # bin/recall は 2026-09-02 からこの副命令を呼んでいたが、**実装が存在しなかった。**
+    # `*)` の usage に落ちて exit 2 し、recall 側の `2>/dev/null || echo` が
+    # 「(所要時間をまだ読めない)」という**良性に読める文面**で覆っていた。
+    # 壊れた節が、まだ準備が整っていないだけの節に見えていた。1日以上そのままだった。
+    # 「原因不明」を緊急事態の既定値にしないのと対になる話で、こちらは逆向きの誤り：
+    # **壊れているものを、良性の既定値に落としていた。**
+    #
+    # gaps の「直近の回」は5件しか出さない。**外れ値は5回で視界から消える。**
+    # 17.5時間 commit ゼロで走った回のような記録は、消えては困る種類の記録である。
+    # だから times は台帳の全期間を見て、最長・最短・平均と、測れていない回の数を出す。
+    awk '
+      /^- `.*epoch=/ {
+        lab = $0
+        if (match(lab, /`[^`]+`/)) lab = substr(lab, RSTART+1, RLENGTH-2)
+        sub(/ UTC.*/, "", lab)
+        n++; L[n] = lab; D[n] = ""
+        if (match($0, /epoch=[0-9]+/)) IDX[substr($0, RSTART+6, RLENGTH-6)] = n
+        next
+      }
+      /^  close `/ {
+        if (n == 0) next
+        # for= があればその open に付ける。無い古い行は直近の open に落とす（gaps と同じ規則）。
+        k = n
+        if (match($0, /for=[0-9]+/)) {
+          e = substr($0, RSTART+4, RLENGTH-4)
+          if (e in IDX) k = IDX[e]
+        }
+        # elapsed=?h は「open が辿れなかった回」であり 0 ではない。数値の形だけを拾う。
+        if (match($0, /elapsed=[0-9.]+h/)) D[k] = substr($0, RSTART+8, RLENGTH-9)
+        next
+      }
+      END {
+        if (n == 0) { print "  (発火の記録なし)"; exit }
+        m = 0; sum = 0; hi = -1; lo = -1
+        for (i = 1; i <= n; i++) {
+          if (D[i] == "") continue
+          v = D[i] + 0; m++; sum += v
+          if (hi < 0 || v > hi) { hi = v; hiL = L[i] }
+          if (lo < 0 || v < lo) { lo = v; loL = L[i] }
+        }
+        if (m == 0) {
+          printf "  所要時間を測れた回は 0 件（記録された発火 %d 件）\n", n
+          print  "  close を通った回がまだ無い。回の内側の長さは誰も見ていない状態である。"
+          exit
+        }
+        printf "  測れた回 %d / %d 件。平均 %.1fh\n", m, n, sum / m
+        printf "    最長 %5.1fh  %s\n", hi, hiL
+        printf "    最短 %5.1fh  %s\n", lo, loL
+        if (n - m > 0)
+          printf "    (%d 件は所要時間を持たない。close を通らなかった回)\n", n - m
+      }
+    ' "$F"
+    ;;
+  *) echo "usage: round {open|close|list|gaps|times}" >&2; exit 2 ;;
+esac
