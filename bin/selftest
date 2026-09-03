@@ -268,13 +268,33 @@ git -C "$R" ls-remote origin 2>/dev/null | grep -q autonomous-ai-agent-design
 check $? "  作業ブランチへ push されている（次の自分が読める場所に残る）"
 git -C "$R" show --stat --name-only HEAD | grep -q 'other.txt'
 [ $? -ne 0 ]; check $? "  台帳以外の変更を巻き込まない"
-# ハーネスが別ブランチを割り当てて起動する回が実在する。そこへ押すと round gaps が読む場所から外れる。
+# ハーネスが別ブランチを割り当てて起動する回が実在する。**直近3回すべてがそれだった。**
+# 旧実装はそこで「commit はしたが push しない」と言って止まっており、
+# **橋頭堡 push は、それが最も要る回で一度も動いていなかった**（2026-09-03 / H024-26b）。
+# 台帳行の永続化を「その回の最後の push」から切り離すために作った仕組みが、
+# 呼ばれる状況では常に退化した入力（＝作業ブランチにいない）へ落ちていた。
+# 正しい振る舞いは「ブランチ名ではなく、作業ブランチの **ref** へ HEAD を押す」である。
 git -C "$R" checkout -q -b claude/harness-assigned
 printf 'y\n' >> "$R/memory/rounds.md"
 outb=$("$R/bin/round" open "別ブランチ" 2>&1)
-grep -q 'push しない' <<<"$outb"; check $? "  作業ブランチ以外では push せず、そう言う"
+grep -q '橋頭堡 push ok' <<<"$outb"
+check $? "  割り当てブランチにいても台帳行を作業ブランチへ固定する"
+git -C "$R" ls-remote origin refs/heads/claude/autonomous-ai-agent-design-jv7jv6 2>/dev/null \
+  | grep -q "$(git -C "$R" rev-parse HEAD)"
+check $? "    押した先は作業ブランチの先端である（次の自分が読む場所）"
 [ "$(git -C "$R" ls-remote origin 2>/dev/null | grep -c harness-assigned)" = "0" ]
 check $? "  見えない場所にブランチを作らない"
+
+# **良性側を広げすぎない。** 作業ブランチを含まない履歴の上にいる回で押してしまうと、
+# 無関係な履歴を記憶のブランチへ流し込む。判定はサーバの fast-forward 検査に委ねる。
+git -C "$R" checkout -q --orphan claude/unrelated
+git -C "$R" -c user.name=t -c user.email=t@t commit -qm orphan >/dev/null 2>&1
+tip_before=$(git -C "$R" ls-remote origin refs/heads/claude/autonomous-ai-agent-design-jv7jv6 2>/dev/null | awk '{print $1}')
+printf 'z\n' >> "$R/memory/rounds.md"
+outn=$("$R/bin/round" open "無関係な履歴" 2>&1); check $? "  ff でない回でも open は落ちない"
+grep -q '橋頭堡 push 失敗' <<<"$outn"; check $? "    押せなかったことを黙らずに言う"
+tip_after=$(git -C "$R" ls-remote origin refs/heads/claude/autonomous-ai-agent-design-jv7jv6 2>/dev/null | awk '{print $1}')
+[ "$tip_before" = "$tip_after" ]; check $? "    無関係な履歴を作業ブランチへ流し込まない"
 rm -rf "$R" "$B"
 
 # close — 回の内側を測る。open だけの台帳は「回と回の間」しか見ていなかった（第3回診断の盲点1）
@@ -301,6 +321,20 @@ grep -q '薄い回が 3 回連続' <<<"$out"; check $? "  薄い回が3回続い
 "$T/bin/round" close + "README 修正" >/dev/null 2>&1
 out=$("$T/bin/round" gaps 12 2>&1)
 ! grep -q '薄い回が' <<<"$out"; check $? "  濃い回が入れば連続は切れる"
+
+echo "I0. preflight — 測る対象と、経路が実際に押す対象が一致しているか"
+# 2026-09-03 / H024-26b の1件目の回帰テスト。
+# preflight は `git push --dry-run origin "$BRANCH"` で**ローカルの同名 ref** を測っていた。
+# ハーネスが別ブランチを割り当てて起動する回では、その ref は放置されて遅れており、
+# **この回が絶対に押さない ref について「非 fast-forward。pull せよ」と報告していた。**
+# 同じ瞬間、実際に押す形（HEAD → 作業ブランチ）は clean な fast-forward だった。
+# **計器が測る対象は、経路が踏む対象と同じでなければ、何も測っていないのと同じである。**
+grep -q 'push --dry-run origin "HEAD:refs/heads/\$BRANCH"' "$SRC/bin/preflight"
+check $? "preflight は HEAD → 作業ブランチの形で測る（ローカルの古い同名 ref ではない）"
+grep -q 'push -q origin "HEAD:refs/heads/\$WORK_BRANCH"' "$SRC/bin/round"
+check $? "  round open の橋頭堡 push が同じ形で押す"
+grep -q 'push origin "HEAD:refs/heads/\$BRANCH"' "$SRC/bin/checkpoint"
+check $? "  checkpoint の締めの push も同じ形で押す（手順で覆っていた3件目）"
 
 echo "I. preflight — push 失敗の理由を取り違えないか"
 # 2026-08-30 の実障害の回帰テスト。遅れているだけの non-fast-forward を

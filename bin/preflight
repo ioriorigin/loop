@@ -6,14 +6,38 @@ source "$(dirname "$0")/_common.sh"
 BRANCH="claude/autonomous-ai-agent-design-jv7jv6"
 fail=0
 ok()   { printf '  [ok]   %s\n' "$1"; }
+warn() { printf '  [注意] %s\n' "$1"; }
 bad()  { printf '  [NG]   %s\n' "$1"; fail=1; }
 
 echo "起動前チェック: $(ts_both)"
 echo
 
+# **項目3の測定を先に済ませる（2026-09-03）。項目1の判定がこれに依存するため。**
+# 出力の順序は変えない。測る順序と、読ませる順序は別のものである。
+#
+# 押す形を `HEAD:refs/heads/$BRANCH` に変えた理由（H024-26b の1件目）。
+# 旧実装は `git push --dry-run origin "$BRANCH"` で**ローカルの同名 ref**を押していた。
+# ハーネスが別のブランチを割り当てて起動する回では、その ref は 23 コミット遅れたまま放置され、
+# **この回が絶対に押さない ref について「非 fast-forward。pull せよ」と報告していた。**
+# 実際にこの回が押す形（HEAD → 作業ブランチ）は、同じ瞬間に clean な fast-forward だった。
+# 計器が測る対象と、経路が実際に踏む対象が食い違っていた。
+# **押す形で測る。** bin/round open と bin/checkpoint が押す形と、ここを一致させること。
+push_rc=0
+push_err=$(git -C "$ROOT" push --dry-run origin "HEAD:refs/heads/$BRANCH" 2>&1) || push_rc=$?
+
 echo "1. ブランチ"
 cur=$(git -C "$ROOT" rev-parse --abbrev-ref HEAD)
-[ "$cur" = "$BRANCH" ] && ok "$cur" || bad "$cur にいる。$BRANCH に切り替えよ"
+if [ "$cur" = "$BRANCH" ]; then
+  ok "$cur"
+elif [ "$push_rc" -eq 0 ]; then
+  # ハーネスが別ブランチを割り当てて起動する回。**直近ではこれが常態であって例外ではない。**
+  # 規則の停止条件は「preflight が **push 不能**を報告したら原因究明だけに充てる」であって、
+  # ブランチ名を条件にしていない。押せているのに NG を出すのは誤警報であり、
+  # 誤警報を毎回出す計器は、やがて読まれなくなる（memory/OPERATING.md §3 と同じ型）。
+  warn "$cur にいる（ハーネスの割り当て）。記録は HEAD → $BRANCH で押せる。作業を続けてよい"
+else
+  bad "$cur にいる。$BRANCH に切り替えよ（HEAD → $BRANCH の push も通っていない。3 を見よ）"
+fi
 
 echo "2. origin との同期"
 if git -C "$ROOT" fetch -q origin "$BRANCH" 2>/dev/null; then
@@ -23,13 +47,12 @@ else
   bad "fetch 失敗。ネットワークか認証を疑え"
 fi
 
-echo "3. push 権限（副作用なしで確認）"
+echo "3. push 権限（副作用なしで確認。**この回が実際に押す形で測る**）"
 # ここが最大の単一障害点。作業を終えてから発覚すると、その回の記憶が丸ごと消える。
 # ただし失敗理由を区別すること。理由は push_err_kind() のコメントに書いた。
-push_rc=0
-push_err=$(git -C "$ROOT" push --dry-run origin "$BRANCH" 2>&1) || push_rc=$?
+# 測定は上で済ませてある（項目1がこの結果に依存するため）。
 if [ "$push_rc" -eq 0 ]; then
-  ok "push 可能"
+  ok "push 可能（HEAD → $BRANCH）"
 else
   case "$(push_err_kind "$push_err")" in
     stale)
@@ -37,6 +60,9 @@ else
     noref)
       # コンテナが main の浅いクローンで作り直された回に出る。良性だが、
       # **認証が生きている証拠にはならない**（リモートに触れる前に落ちている）。
+      # 2026-09-03: 押す形を HEAD: に変えたので、この分類はもうほぼ出ない（HEAD は必ず解決する）。
+      # **出なくなったからといって分類を消さない。** 別の経路が同じ形で落ちたとき、
+      # 受け皿が無ければ unknown＝最悪側へ倒れる。それが 08-30 と 09-02 に2度起きた形である。
       bad "ローカルに $BRANCH が無いだけ（良性）。認証は**まだ測れていない。** git checkout -B $BRANCH origin/$BRANCH してから preflight をやり直せ" ;;
     auth)
       bad "push できない（認証・権限）。**今すぐ原因を潰せ。** これを放置すると今回の記憶は失われる" ;;

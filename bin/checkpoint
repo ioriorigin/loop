@@ -70,8 +70,15 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 fi
 
 echo "── 5/5 push"
+# **押す先はブランチ名ではなく ref で指す（2026-09-03。H024-26b の3件目）。**
+# `push origin "$BRANCH"` は**ローカルの同名 ref** を押す。ハーネスが別のブランチを
+# 割り当てて起動する回では、そのローカル ref は誰も触らないので遅れたまま残り、
+# 非 fast-forward で弾かれる。これまで露見しなかったのは、その回では
+# memory/OPERATING.md §1a-2 に従って手でブランチを移していたからにすぎない。
+# **手順で覆っている欠陥は、手順を飛ばした回に必ず出る。** preflight と round open と
+# ここの3つが、同じ形（HEAD → 作業ブランチ）で押すこと。bin/selftest I0 節が固定している。
 for i in 1 2 3 4; do
-  if git -C "$ROOT" push -u origin "$BRANCH" 2>&1 | tail -1; then
+  if git -C "$ROOT" push origin "HEAD:refs/heads/$BRANCH" 2>&1 | tail -1; then
     echo "  ok — 記憶を外部に固定した"
     exit 0
   fi

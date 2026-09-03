@@ -67,13 +67,34 @@ push に失敗してもこの回は止まらない（bin/round の設計）。
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" -- "$F" >/dev/null 2>&1; then
       echo "  （台帳に差分が無い。橋頭堡 push は省略）"
-    elif [ "$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null)" != "$WORK_BRANCH" ]; then
-      echo "  ** いまのブランチは $WORK_BRANCH ではない。commit はしたが push しない **"
-      echo "  ** 作業ブランチへ移してから押すこと。別ブランチの記録は次の自分から見えない **"
-    elif git -C "$ROOT" push -q origin "$WORK_BRANCH" >/dev/null 2>&1; then
-      echo "  橋頭堡 push ok — この回が起きた事実は外部に残った"
     else
-      echo "  ** 橋頭堡 push 失敗。台帳はローカルにのみ存在する。preflight の判定に従え **"
+      # **押す先はブランチ名ではなく ref で指す（2026-09-03 修正。H024-26b の2件目）。**
+      #
+      # 旧実装は「いまのブランチが作業ブランチでなければ push しない」だった。
+      # ところがハーネスが別のブランチを割り当てて起動する回は、**直近3回すべてである。**
+      # つまり橋頭堡 push は、**それが最も要る回で一度も動いていなかった。**
+      # 台帳行の永続化を「その回の最後の push」から切り離すために作った仕組みが、
+      # 実際に呼ばれる状況では常に「押さない」側へ落ちていた。
+      # 計器を足しても、呼ばれる瞬間に渡る入力が常に退化していれば働かない（H024-26b の型）。
+      #
+      # 割り当てブランチは、作業ブランチの tip に橋頭堡 commit が乗っただけの形である。
+      # だから HEAD を**作業ブランチの ref へ**押せば fast-forward で通る。
+      # **ff かどうかの判定はサーバに任せる。** ローカルの origin/<作業ブランチ> は
+      # 起動直後で古いことがあり（pull はこの後に走る）、こちらでの先読みは当てにならない。
+      # ref を明示しているので、弾かれても割り当てブランチが origin に作られることはない。
+      cur_b=$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?")
+      if git -C "$ROOT" push -q origin "HEAD:refs/heads/$WORK_BRANCH" >/dev/null 2>&1; then
+        if [ "$cur_b" = "$WORK_BRANCH" ]; then
+          echo "  橋頭堡 push ok — この回が起きた事実は外部に残った"
+        else
+          echo "  橋頭堡 push ok — いまは $cur_b にいるが、台帳行は $WORK_BRANCH へ固定した"
+        fi
+      else
+        echo "  ** 橋頭堡 push 失敗。台帳はローカルにのみ存在する。preflight の判定に従え **"
+        if [ "$cur_b" != "$WORK_BRANCH" ]; then
+          echo "  ** いまは $cur_b。fast-forward でないので、作業ブランチへ移して押し直せ **"
+        fi
+      fi
     fi
     ;;
   close)
