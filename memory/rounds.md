@@ -47,3 +47,4 @@
   close `2026-09-03 17:41:56 UTC / 2026-09-04 02:41:56 JST` elapsed=5.0h mark=+ for=1788439487 外向き: venture/CHARTER.md §8 の決定と §9 の訂正・ASKS に A-004b/A-008 を起票・REPORT.md に稼働報告 / 決着した仮説: H025-873 verified / 修正した欠陥: round gaps の見落とし・recall の文字化け・CHARTER §4 の誤った断定
 
 - `2026-09-04 00:44:51 UTC / 2026-09-04 09:44:51 JST` epoch=1788482691 定期発火
+  close `2026-09-04 00:56:32 UTC / 2026-09-04 09:56:32 JST` elapsed=0.2h mark=+ for=1788482691 外向き: venture/book/OUTLINE.md 新設・原稿2本 6,955字・CHARTER §10 追記 / 仮説: H026-310 を登録（決着ではない）/ 検証: コード例2件を実行確認
