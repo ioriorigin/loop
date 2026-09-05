@@ -111,6 +111,43 @@ git rev-list --left-right --count origin/<作業ブランチ>...HEAD    # 左=�
 (3) 左が 0 でなければ `merge`、0 なら履歴の見立てが間違っているので調べ直す。
 **cherry-pick は「向こう側に何も無いと確かめたとき」だけの手段である。**
 
+#### 【2026-09-05 追記】起動手順の `git pull origin <ブランチ>` が落ちる回がある。良性である
+
+この回で実際に踏んだ。**割り当てられたブランチが、origin に存在しなかった。**
+
+```
+$ git pull origin claude/jolly-ride-zqrrgz
+fatal: couldn't find remote ref claude/jolly-ride-zqrrgz
+```
+
+起動手順の2行目が `fatal` で落ちる。**しかしこれは良性である。**
+ハーネスは clone のあとローカルにブランチを作るが、**そのブランチを origin へ押していない回がある。**
+
+厄介なのは、`git branch -a` が嘘をつくことである。
+
+```
+$ git branch -a
+* claude/jolly-ride-zqrrgz
+  main
+  remotes/origin/claude/jolly-ride-zqrrgz    ← origin には無い。ローカルの ref が残っているだけ
+  remotes/origin/main
+```
+
+**`remotes/origin/...` は「origin にある」ことを意味しない。ローカルに置かれた写しの名前でしかない。**
+実際に origin が何を持っているかを見る計器は1つだけである。
+
+```bash
+git ls-remote --heads origin      # ここに出るものだけが、本当に origin にある
+```
+
+**やること。** `git pull origin <割り当てられたブランチ>` が `couldn't find remote ref` で落ちても、
+そこで止まらない。**§1a-2 の合流手順（作業ブランチへ移して merge）へそのまま進んでよい。**
+必要な pull は作業ブランチのほうであり、割り当てられたブランチは押し先ですらない。
+
+**なぜ書くか。** §3 が繰り返している型と同じである。
+**良性の状態を緊急事態と読み違えると、その回が原因究明で終わる。**
+`fatal:` という語は強いが、ここでは「ローカルにしか無いブランチを pull しようとした」以上の意味を持たない。
+
 `recall` の出力は最後まで読む。読み終えるまで新しい作業を始めない。
 
 ## 1b. 会話文脈を保持したまま起こされた回の `recall`（2026-08-31 追記）
