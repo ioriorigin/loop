@@ -165,7 +165,21 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" -- "$F" >/dev/null 2>&1; 
     ;;
   gaps)
     h="${2:-$DEFAULT_INTERVAL_H}"
-    grep -E '^- `.*epoch=' "$F" 2>/dev/null | awk -v maxgap="$((h*3600))" -v ih="$h" '
+    # **台帳の行の並びは、時刻の並びではない。** 2026-09-05 に実測した。
+    # 台帳は追記専用で `.gitattributes` の merge=union が効くので、
+    # 割り当てブランチで開いた回を後から合流させると、**新しい行が古い行より前に入る。**
+    # 実際 12:44 の open が 00:45 の open より前に並び、gaps は
+    #   (1) 09-04 12:44 → 09-05 12:44 を連続と読んで「24時間の空白」を捏造し、
+    #   (2) 00:45 の回を末尾＝「いま走っている回」と誤認して、
+    #       走っている 12:44 の回を「締めを飛ばした回」＝薄い回として数えた
+    # つまり**存在しない発火の見落としと、存在しない薄い回を、同時に作っていた。**
+    # ハーネスが別ブランチを割り当てる回はいま多数派なので、これは例外ではなく通常経路である。
+    # 直し方は1つ。**読む前に epoch で並べ替える。** 行の位置を時刻の代理に使わない。
+    sort_by_epoch() {
+      awk 'match($0, /epoch=[0-9]+/) { printf "%s\t%s\n", substr($0, RSTART+6, RLENGTH-6), $0 }' \
+        | sort -n -k1,1 | cut -f2-
+    }
+    grep -E '^- `.*epoch=' "$F" 2>/dev/null | sort_by_epoch | awk -v maxgap="$((h*3600))" -v ih="$h" '
       {
         # 表示用のラベル（最初のバッククォート内）と epoch を取り出す
         lab = $0
@@ -186,7 +200,18 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" -- "$F" >/dev/null 2>&1; 
     '
     # 回の内側 — 直近の回の所要時間と密度。空白検出と同じ場所に出す。
     # gaps は recall が毎回叩くので、ここに出せば次の自分の目に必ず入る。
-    awk '
+    #
+    # `cur` は**この回の open の epoch**（`.round-current` の1語目）。open のときだけ渡す。
+    # close 済みなら渡さない——締めたあとに叩いた gaps は、自分の回も判定の対象に含めてよい。
+    # ROUND_CURRENT_EPOCH が設定されていればそちらを優先する（selftest が合成台帳を試すため）。
+    cur=""
+    if [ -n "${ROUND_CURRENT_EPOCH-}" ]; then
+      cur="$ROUND_CURRENT_EPOCH"
+    elif [ -f "$ROOT/.round-current" ]; then
+      read -r _e _s < "$ROOT/.round-current" || true
+      [ "${_s-}" = "open" ] && cur="$_e"
+    fi
+    awk -v cur="$cur" '
       # 日本語を byte 単位で切ると、末尾が文字化けする。**記憶を毎回読む経路の出力である。**
       # awk は mawk（byte 単位・ロケール非対応）なので、切った先が文字の途中なら、
       # その文字ごと落とす。切り口が文字境界に一致しているときは何もしない。
@@ -204,8 +229,11 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" -- "$F" >/dev/null 2>&1; 
         lab = $0
         if (match(lab, /`[^`]+`/)) lab = substr(lab, RSTART+1, RLENGTH-2)
         sub(/ UTC.*/, "", lab)
-        n++; L[n] = lab; D[n] = "?"; M[n] = "?"; T[n] = "(未クローズ)"
-        if (match($0, /epoch=[0-9]+/)) IDX[substr($0, RSTART+6, RLENGTH-6)] = n
+        n++; L[n] = lab; D[n] = "?"; M[n] = "?"; T[n] = "(未クローズ)"; E[n] = 0
+        if (match($0, /epoch=[0-9]+/)) {
+          E[n] = substr($0, RSTART+6, RLENGTH-6) + 0
+          IDX[substr($0, RSTART+6, RLENGTH-6)] = n
+        }
         next
       }
       /^  close `/ {
@@ -225,9 +253,21 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" -- "$F" >/dev/null 2>&1; 
       }
       END {
         if (n == 0) exit
+
+        # **読む前に時刻で並べ替える。** 台帳の行の並びは時刻の並びではない（上の sort_by_epoch と同じ理由）。
+        # 取り込みのときは file 順が要る（for= を持たない古い close 行を直近の open に落とすため）。
+        # だから file 順で読み、**ここで chronological な参照列 O[] を作る。**
+        # 以後 O[1..n] だけを使う。**位置を時刻の代理に使わない。**
+        for (i = 1; i <= n; i++) O[i] = i
+        for (i = 2; i <= n; i++) {            # 挿入ソート。n は数十件なので十分
+          v = O[i]
+          for (j = i - 1; j >= 1 && E[O[j]] > E[v]; j--) O[j+1] = O[j]
+          O[j+1] = v
+        }
+
         printf "\n  直近の回（所要時間と密度）\n"
         s = n - 4; if (s < 1) s = 1
-        for (i = s; i <= n; i++) printf "    %s  %6s  %s  %s\n", L[i], D[i], M[i], utrim(T[i], 46)
+        for (i = s; i <= n; i++) { k = O[i]; printf "    %s  %6s  %s  %s\n", L[k], D[k], M[k], utrim(T[k], 46) }
 
         # **`?` は3つの別の状態を1文字に潰していた。** これが停止条件を殺していた原因である。
         #   (a) close 機構より前に開かれた回 — 印が無く、**原理的にもう閉じられない**
@@ -238,25 +278,37 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" -- "$F" >/dev/null 2>&1; 
 
         # 密度が読める最初の回＝close 機構が入った世代の始まり。ここより前が (a)。
         gen = 0
-        for (i = 1; i <= n; i++) if (M[i] != "?") { gen = i; break }
+        for (i = 1; i <= n; i++) if (M[O[i]] != "?") { gen = i; break }
         if (gen == 0) gen = n + 1
 
-        # **末尾の1件は (c)「いま走っている回」である。連続の起点から外す。**
+        # **(c)「いま走っている回」を連続の起点から外す。**
         # gaps を呼ぶのは bin/recall だけで、recall は round open の直後に走る。
-        # つまり末尾は**必ず**未クローズであり、そこから遡ると連続は初回で必ず切れる。
+        # つまり自分の回は**必ず**未クローズであり、そこから遡ると連続は初回で必ず切れる。
         # 2026-09-03 に実測して確認した。薄い回を3回続けても停止条件は一度も出ない。
         # 「薄い回が3回連続したら止まる」は、計器を足したあとも**発動できないままだった。**
         # 参照する量を作っただけでは足りない。**読む側が末尾で必ず躓く形になっていた。**
-        last = n
-        if (M[n] == "?") last = n - 1
+        #
+        # **2026-09-05 訂正: 「末尾の1件」で見分けていたのが誤りだった。**
+        # 末尾＝いま走っている回、は台帳の行順が時刻順であることに賭けている。賭けは外れた。
+        # 自分の回を指す印は既に存在する——`.round-current`（cur で渡す）。**コンテナごとに独立で、
+        # 並行しても取り違えない**と round close 側が自分で書いている。位置ではなく、その印で外す。
+        # 印が無い回（コンテナが作り直された等）では、時刻順の末尾へ落とす（従来の挙動）。
+        # 判定の対象は「(a) より後で、かつ自分の回ではない回」だけ。先に列 C[] を作ってから数える。
+        # **数える前に母集団を確定させる。** 数えながら添字を動かすと、境界の条件が静かにずれる。
+        cn = 0
+        for (i = gen; i <= n; i++) {
+          if (cur != "" && E[O[i]] == cur + 0) continue          # (c) 自分の回。締める番がまだ来ていない
+          if (cur == "" && i == n && M[O[i]] == "?") continue     # 印が無い回は従来どおり末尾で落とす
+          cn++; C[cn] = O[i]
+        }
 
         thin = 0
-        for (i = last; i >= gen && i > last - 3; i--) {
-          if (M[i] == "-") thin++
+        for (i = cn; i >= 1 && i > cn - 3; i--) {
+          if (M[C[i]] == "-") thin++
           # (b) は薄い回と数える。**濃かった証拠を1つも残さずに終わった回である。**
           # 規則「薄い回の定義」は外向きの成果物・決着した仮説・修正した欠陥が全部ゼロなら薄い、
           # と定めており、締めを飛ばした回はそのどれも申告していない。緩和ではなく厳格化にあたる。
-          else if (M[i] == "?") thin++
+          else if (M[C[i]] == "?") thin++
           else break
         }
         if (thin >= 3) {
@@ -266,7 +318,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" -- "$F" >/dev/null 2>&1; 
         }
 
         skipped = 0
-        for (i = gen; i <= last; i++) if (M[i] == "?") skipped++
+        for (i = 1; i <= cn; i++) if (M[C[i]] == "?") skipped++
         if (skipped > 0)
           printf "\n  ** 締めを飛ばした回が %d 件ある。密度を申告せずに終わった回である **\n", skipped
         legacy = gen - 1
@@ -331,7 +383,15 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" -- "$F" >/dev/null 2>&1; 
         next
       }
       END { for (i = 1; i <= n; i++) printf "%d %d\n", O[i], E[i] }
-    ' "$F" > "$win"
+    ' "$F" | sort -n -k1,1 > "$win"
+    # **`sort` を挟む理由（2026-09-05 追加）。** 下の走査は窓が時刻順に並んでいることを前提にしている
+    # （「締めていない回の窓は次の open まで」＝ O[i+1] が後の時刻であること）。
+    # 台帳は merge=union で合流するので、**行の並びは時刻の並びではない。**
+    # 実際この日、12:44 に開いた回（未クローズ）の直後の行が 00:45 の回だったため、
+    # `end = O[i+1]` が open より過去になり、窓が裏返って**自分の回の commit を
+    # 「台帳を書かずに走った回の物証」として毎回告発していた。**
+    # gaps 本体で踏んだのと同じ欠陥が、同じファイルの別の節にもう1つあった。
+    # **並び順を仮定する計器は、並び順を保証する媒体の上でしか正しくない。**
     git -C "$ROOT" log --format='%ct %h %s' --since="$days days ago" 2>/dev/null \
     | awk -v marg="$marg" -v days="$days" '
         # gaps 側と同じ理由（mawk は byte 単位）。文字の途中で切らない。
