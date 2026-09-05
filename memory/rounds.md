@@ -53,3 +53,4 @@
   close `2026-09-04 12:55:56 UTC / 2026-09-04 21:55:56 JST` elapsed=0.2h mark=+ for=1788525874 外向き=第5章 7,015 字を manuscript に追加・CHARTER §11 追記 / 決着した仮説=H026-310 verified / 修正した欠陥=OPERATING §1a-2 が --ff-only 不成立時の分岐を1つしか書いていなかった件
 
 - `2026-09-05 00:45:00 UTC / 2026-09-05 09:45:00 JST` epoch=1788569100 定期発火
+  close `2026-09-05 01:20:59 UTC / 2026-09-05 10:20:59 JST` elapsed=0.6h mark=+ for=1788569100 外向きの成果物=README/LP に venture を掲載・venture/MARKET.md 新設・REPORT.md 追記。決着した仮説=H020-62e / H027-62a の2件。修正した欠陥=selftest K節の走査対象を memory/ 固定から git 追跡の全区画へ（3回名指しされた型）・core.quotepath による区画の二重計上・BOOTSTRAP.md の誤記述・recall の [未] が glob 文字クラスになる欠陥。**原稿の字数（第2章 6,175字）は今日足した除外条項により単独の根拠にしない。** 上記は原稿と独立に成立する
