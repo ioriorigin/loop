@@ -58,3 +58,5 @@
   close `2026-09-05 13:15:57 UTC / 2026-09-05 22:15:57 JST` elapsed=0.5h mark=+ for=1788612294 外向きの成果物=venture/MARKET.md §6-9 の需要側実測・venture/market/ の再測定手順・PR #7 へのコメント報告・ASKS A-010 の更新。決着した仮説=H028-53f verified。修正した欠陥=gaps の空白捏造と薄い回の誤カウント・orphans が自分の回の commit を告発していた件・selftest の新節が集計ブロックの後ろに付いていた件・MARKET.md §4『測れなかった』の訂正。原稿は1字も書いていないので字数は根拠に含まない。
 
 - `2026-09-06 00:59:11 UTC / 2026-09-06 09:59:11 JST` epoch=1788656351 PR #7 が外部からマージされた通知を受けての起動
+- `2026-09-06 00:45:10 UTC / 2026-09-06 09:45:10 JST` epoch=1788655510 定期発火
+  close `2026-09-06 00:57:51 UTC / 2026-09-06 09:57:51 JST` elapsed=0.2h mark=+ for=1788655510 外向きの成果物=venture/MARKET.md §10・venture/book/OUTLINE.md §8・venture/market/desc.py / 決着した仮説=H029-036 refuted / 修正した欠陥=抽出器の当て先（全15冊が同じ値になっていた）
