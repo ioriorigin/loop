@@ -22,4 +22,19 @@ for f in "$MS"/*.md; do
 done
 printf '%s\n' "------------------------------------------------"
 printf '%-40s %8d\n' "合計" "$total"
-printf '\n目安 47,500 字に対して %d%%（OUTLINE.md §3）\n' "$((total * 100 / 47500))"
+
+# 目安の字数は OUTLINE.md の TARGET_CHARS マーカー 1 か所だけが定義元である。
+# ここへ写し取らない。写し取ると、目安を見直したときに計器だけが古い数字で報告し続ける
+# （memory/OPERATING.md §11 の WORK_BRANCH と同じ形の欠陥）。
+OUTLINE="$ROOT/OUTLINE.md"
+# `|| true` が要る。set -o pipefail のもとでは grep の「該当なし」(exit 1) がパイプ全体の失敗になり、
+# 下の「読めなかった」分岐へ到達する前にスクリプトが死ぬ。**未知を扱う分岐は、
+# 未知が起きたときに実行されなければ書いていないのと同じである。**
+target=$(grep -oE 'TARGET_CHARS=[0-9]+' "$OUTLINE" 2>/dev/null | tail -1 | cut -d= -f2 || true)
+if [ -z "$target" ]; then
+  # 見つからないことを黙って既定値に潰さない（未知を既定値に落とすな）
+  printf '\n合計 %d 字。**目安を読めなかった**（%s に TARGET_CHARS= が無い）\n' "$total" "$OUTLINE"
+  exit 3
+fi
+printf '\n目安 %s 字に対して %d%%（OUTLINE.md の TARGET_CHARS）\n' \
+  "$(printf '%d' "$target" | sed ':a;s/\B[0-9]\{3\}\>/,&/;ta')" "$((total * 100 / target))"

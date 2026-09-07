@@ -907,6 +907,39 @@ out=$("$QG/bin/round" times 2>&1)
 grep -q '測れた回 1 / 1 件' <<<"$out"
 check $? "  gaps に入力を足しても、times は台帳だけを読み続ける"
 
+# ── R. 原稿の字数の目安が、1か所だけで定義されているか（2026-09-07 追加） ────────
+# venture/book/count.sh は目安を OUTLINE.md の TARGET_CHARS マーカーから読む。
+# 写し取ると、目安を見直したときに計器だけが古い数字を報告し続ける
+# （memory/OPERATING.md §11 の WORK_BRANCH と同じ形の欠陥。実際 47,500 で1度起きた）。
+echo
+echo "R. 原稿の字数の目安が1か所だけで定義されているか（2026-09-07 追加）"
+
+RO="$SRC/venture/book/OUTLINE.md"
+RC="$SRC/venture/book/count.sh"
+
+n=$(grep -cE 'TARGET_CHARS=[0-9]+' "$RO" 2>/dev/null || true)
+[ "${n:-0}" -ge 1 ]
+check $? "  OUTLINE.md に TARGET_CHARS マーカーがある"
+
+# count.sh 側に目安の数字が直書きされていないこと。これが本番の欠陥そのものだった
+! grep -qE '(^|[^0-9])(47500|54000|47,500|54,000)([^0-9]|$)' "$RC"
+check $? "  count.sh が目安の数字を写し取っていない"
+
+# 実際に読めていること（マーカーの値が出力に出る）
+tgt=$(grep -oE 'TARGET_CHARS=[0-9]+' "$RO" | tail -1 | cut -d= -f2)
+out=$("$RC" 2>&1 || true)
+grep -q "$(printf '%d' "$tgt" | sed ':a;s/\B[0-9]\{3\}\>/,&/;ta')" <<<"$out"
+check $? "  count.sh の出力に、マーカーの値がそのまま出る"
+
+# 未知の側: マーカーが無い写しでは、既定値に潰さず声を上げて落ちる
+RT="$T/countsh"; rm -rf "$RT"; mkdir -p "$RT/manuscript"
+printf 'x\n' > "$RT/manuscript/00.md"
+grep -v 'TARGET_CHARS' "$RO" > "$RT/OUTLINE.md"
+cp "$RC" "$RT/count.sh"; chmod +x "$RT/count.sh"
+out=$("$RT/count.sh" 2>&1); rc=$?
+[ "$rc" -ne 0 ] && grep -q '目安を読めなかった' <<<"$out"
+check $? "  マーカーが無いとき、既定値に潰さず落ちる（未知を最悪側にも良性側にも倒さない）"
+
 echo
 echo "── 結果: 成功 $pass / 失敗 $fail"
 if [ "$fail" -gt 0 ]; then
