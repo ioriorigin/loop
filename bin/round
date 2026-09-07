@@ -250,7 +250,33 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" -- "$F" >/dev/null 2>&1; 
       read -r _e _s < "$ROOT/.round-current" || true
       [ "${_s-}" = "open" ] && cur="$_e"
     fi
+    # **台帳を書かずに走った回を、密度の連続数に混ぜる（2026-09-07 追加）。**
+    #
+    # orphans は 2026-09-03 から「commit はあるのに台帳に行が無い回」を検出できていた。
+    # だが**検出されるだけで、停止条件の連続数には一度も入っていなかった。**
+    # 理由は単純で、遡りは台帳の行を数えるものであり、行が無い回は数える対象が存在しない。
+    # 規則にもそう書いて残してある——**「見えるようになった」と「数えられるようになった」は別である。**
+    #
+    # 締めを飛ばした回（`?`）を薄い回と数えるのと、根拠は同じである。
+    # **濃かった証拠を1つも申告せずに終わった回**だからで、
+    # 台帳を1行も書かなかった回は、申告しなかった度合いがそれより強い。
+    # 台帳の行が無いので `elapsed` も理由も出せない。**出せるのは epoch だけである。**
+    # ラベルは mawk に strftime が無いのでシェル側で作る。
+    orph=$(mktemp) || exit 1
+    trap 'rm -f "$orph"' EXIT
+    # **1行目の番人。空ファイルを渡すと `NR == FNR` が壊れる。**
+    # awk の慣用句 `NR == FNR` は「1つ目の入力を読んでいる間」を意味するが、
+    # 1つ目が空だと1レコードも読まれず、**2つ目の1行目が NR==FNR==1 で1つ目と誤認される。**
+    # 台帳の1行目が黙って捨てられる形で、selftest の J / L / O 節が実際に 10 件落ちた。
+    # 台帳を書かなかった回が0件なのは**通常の状態**であり、その通常の状態でだけ壊れる計器だった。
+    printf '# orphans\n' > "$orph"
+    "$0" orphans 7 3600 epochs 2>/dev/null | while read -r _oe; do
+      case "$_oe" in ''|*[!0-9]*) continue ;; esac
+      printf '%s\t%s\n' "$_oe" "$(date -u -d "@$_oe" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo '?')"
+    done >> "$orph" || true
     awk -v cur="$cur" '
+      # 1つ目の入力は orphans の epoch 一覧（台帳の行が無い回）。台帳より先に読む。
+      NR == FNR { if ($0 !~ /^#/ && $1 + 0 > 0) { on++; OE[on] = $1 + 0; OL[on] = $2 " " $3 } next }
       # 日本語を byte 単位で切ると、末尾が文字化けする。**記憶を毎回読む経路の出力である。**
       # awk は mawk（byte 単位・ロケール非対応）なので、切った先が文字の途中なら、
       # その文字ごと落とす。切り口が文字境界に一致しているときは何もしない。
@@ -292,6 +318,15 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" -- "$F" >/dev/null 2>&1; 
       }
       END {
         if (n == 0) exit
+
+        # 台帳の行が無い回を、台帳の行と同じ列に並べる。**印（OF）を付けて区別できるようにしておく。**
+        # 「締めを飛ばした回」と「そもそも開かなかった回」は別の失敗であり、
+        # 同じ数に潰すと、直し方の違う2つが1つの警告に見える（`?` を3つに分けたのと同じ話）。
+        for (i = 1; i <= on; i++) {
+          n++
+          L[n] = OL[i]; D[n] = "?"; M[n] = "?"; E[n] = OE[i]; OF[n] = 1
+          T[n] = "(台帳に1行も書かずに走った回。commit から検出)"
+        }
 
         # **読む前に時刻で並べ替える。** 台帳の行の並びは時刻の並びではない（上の sort_by_epoch と同じ理由）。
         # 取り込みのときは file 順が要る（for= を持たない古い close 行を直近の open に落とすため）。
@@ -356,15 +391,20 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" -- "$F" >/dev/null 2>&1; 
           printf "  頻度を下げるか一時停止し、判断と理由を STATE.md と行動ログに書くこと。\n"
         }
 
-        skipped = 0
-        for (i = 1; i <= cn; i++) if (M[C[i]] == "?") skipped++
+        skipped = 0; noline = 0
+        for (i = 1; i <= cn; i++) {
+          if (M[C[i]] != "?") continue
+          if (OF[C[i]]) noline++; else skipped++
+        }
         if (skipped > 0)
           printf "\n  ** 締めを飛ばした回が %d 件ある。密度を申告せずに終わった回である **\n", skipped
+        if (noline > 0)
+          printf "\n  ** 台帳を1行も書かずに走った回が %d 件ある（連続数に算入済み）**\n", noline
         legacy = gen - 1
         if (legacy > 0)
           printf "\n  (うち %d 件は close 機構より前の回。もう閉じられないので連続には数えない)\n", legacy
       }
-    ' "$F"
+    ' "$orph" "$F"
     # 台帳の外側 — **台帳に1行も書かずに走った回**を git 側から拾う。
     # gaps 本体は台帳しか読まないので、行を書かなかった回は原理的に見えない。詳細は orphans 節。
     # `|| true` を付ける理由: 呼び出し側が `| head` や `| grep -q` で受けると
@@ -395,12 +435,20 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" -- "$F" >/dev/null 2>&1; 
     # **良性の尾を異常と読むと、計器は読まれなくなる。** preflight で学んだのと同じ話である。
     days="${2:-7}"
     marg="${3:-3600}"
+    # 第4引数 `epochs` は機械向けの出力（2026-09-07 追加）。
+    # 装飾を一切出さず、**台帳を書かずに走った「回」の epoch だけ**を1行1件で出す。
+    # gaps 側がこれを読んで、停止条件の連続数に混ぜる。
+    # **なぜ要るか。** orphans は 2026-09-03 から commit を検出できていたが、
+    # その回は台帳に行が無いので、密度の遡り（gaps）が数える対象そのものが存在しなかった。
+    # 規則にも「**見えるようになった**と**数えられるようになった**は別である」と自分で書いてある。
+    # その距離を、ここで詰める。
+    mode="${4:-}"
     # git が無い／リポジトリの外なら、突き合わせる帳簿が無いだけである。**異常ではない。**
     # ここで失敗させると、gaps を呼んだ側まで巻き添えで非ゼロ終了する
     # （_common.sh の set -e / pipefail が効いている。selftest の非 git 足場で実際に落ちた）。
     # **計器を足したせいで、足された側が壊れる**のは、いちばん割に合わない失敗である。
     if ! git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
-      echo "  (git 管理外。台帳の外の commit は突き合わせられない)"
+      [ "$mode" = epochs ] || echo "  (git 管理外。台帳の外の commit は突き合わせられない)"
       exit 0
     fi
     win=$(mktemp) || exit 1
@@ -432,7 +480,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" -- "$F" >/dev/null 2>&1; 
     # gaps 本体で踏んだのと同じ欠陥が、同じファイルの別の節にもう1つあった。
     # **並び順を仮定する計器は、並び順を保証する媒体の上でしか正しくない。**
     git -C "$ROOT" log --format='%ct %h %s' --since="$days days ago" 2>/dev/null \
-    | awk -v marg="$marg" -v days="$days" '
+    | awk -v marg="$marg" -v days="$days" -v mode="$mode" -v clus="${ORPHAN_CLUSTER_S:-7200}" '
         # gaps 側と同じ理由（mawk は byte 単位）。文字の途中で切らない。
         function utrim(s, n,   t, nxt) {
           if (length(s) <= n) return s
@@ -465,9 +513,22 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" -- "$F" >/dev/null 2>&1; 
             else                 end = t
             if (t <= end) { covered = 1; break }
           }
-          if (!covered) { n++; if (n <= 10) orphan[n] = $0 }
+          if (!covered) { n++; OT[n] = t; if (n <= 10) orphan[n] = $0 }
         }
         END {
+          # **機械向けの出力。commit ではなく「回」の単位にまとめて epoch だけを出す。**
+          # 1つの回は普通いくつも commit を打つ。commit を1件1回と数えると、
+          # **よく働いた回ほど薄い回として重く数えられる**という、意味が逆さまの計器になる。
+          # だから近接する commit を1つの回に畳む（既定 2 時間。台帳の平均所要 2.3h に対して
+          # 短めに取ってある——**畳みすぎると2つの回が1つに見えて、連続を過小に数える**）。
+          if (mode == "epochs") {
+            if (nw == 0 || n == 0) exit
+            for (i = 1; i <= n; i++) S[i] = OT[i]          # 挿入ソート（件数は多くて数十）
+            for (i = 2; i <= n; i++) { v = S[i]; for (j = i-1; j >= 1 && S[j] > v; j--) S[j+1] = S[j]; S[j+1] = v }
+            printf "%d\n", S[1]
+            for (i = 2; i <= n; i++) if (S[i] - S[i-1] > clus + 0) printf "%d\n", S[i]
+            exit
+          }
           if (nw == 0) { print "  (台帳に窓が無い。orphans は判定できない)"; exit }
           if (n == 0) {
             printf "\n  台帳の外で打たれた commit は無い（直近 %s 日）\n", days

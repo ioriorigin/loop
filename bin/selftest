@@ -827,6 +827,120 @@ grep -q '\[空白\]' <<<"$out"; check $? "  定期発火の印が無い台帳で
 grep -q '全件を1つの母集団' <<<"$out"; check $? "  そのとき、そう扱ったことを黙らずに言う"
 
 echo
+echo "Q. 台帳を書かずに走った回が、停止条件の連続数に入るか（2026-09-07 追加）"
+# **orphans は 2026-09-03 から検出できていた。だが一度も数えられていなかった。**
+# 遡りは台帳の行を数えるもので、行が無い回は数える対象そのものが存在しない。
+# 規則に「**見えるようになった**と**数えられるようになった**は別である」と自分で書いたまま、
+# 4日間そのままだった。ここで距離を詰め、二度と開かないよう固定する。
+QG="$T/orphcount"
+mkdir -p "$QG/bin" "$QG/memory"
+cp "$SRC"/bin/{_common.sh,round} "$QG/bin/"; chmod +x "$QG"/bin/*
+git -C "$QG" init -q >/dev/null 2>&1
+git -C "$QG" config user.email t@example.invalid
+git -C "$QG" config user.name loop-test
+QL="$QG/memory/rounds.md"
+QN=$(date -u +%s); QB=$((QN - 172800))
+qcommit() {
+  printf '%s\n' "$1" >> "$QG/f.txt"
+  ( cd "$QG" \
+    && export GIT_COMMITTER_DATE="@$1 +0000" GIT_AUTHOR_DATE="@$1 +0000" \
+    && git add -A && git commit -q -m "$2" ) >/dev/null 2>&1
+}
+qled() { printf '# 発火台帳\n' > "$QL"; }
+qrow() { # qrow <epoch> <open|elapsed> [mark]
+  printf '\n- `X UTC / X JST` epoch=%s 定期発火\n' "$1" >> "$QL"
+  [ "$2" = open ] && return 0
+  printf '  close `Y UTC / Y JST` elapsed=%sh mark=%s for=%s 根拠\n' "$2" "${3:-+}" "$1" >> "$QL"
+}
+qreset() {
+  rm -rf "$QG/.git" "$QG/f.txt"; git -C "$QG" init -q >/dev/null 2>&1
+  git -C "$QG" config user.email t@example.invalid; git -C "$QG" config user.name loop-test
+}
+
+# --- 機械向け出力（epochs）。commit ではなく「回」の単位で出す ---
+# 1つの回は普通いくつも commit を打つ。commit を1件1回と数えると、
+# **よく働いた回ほど薄い回として重く数えられる**という、意味が逆さまの計器になる。
+qled; qrow "$QB" 0.2
+qcommit $((QB + 21600)) "台帳を書かなかった回の1本目"
+qcommit $((QB + 21900)) "同じ回の2本目（5分後）"
+qcommit $((QB + 60000)) "別の回の commit"
+out=$("$QG/bin/round" orphans 7 3600 epochs 2>&1)
+[ "$(printf '%s\n' "$out" | wc -l)" = "2" ]
+check $? "近接する commit を1つの回に畳む（3 commit → 2 回）"
+! grep -qv '^[0-9]\+$' <<<"$out"
+check $? "  epochs は装飾を出さない（epoch だけを1行1件で出す）"
+
+# --- 本体: 薄い回2件 + 台帳を書かなかった回1件 で停止条件が発動するか ---
+# **これが本題である。** 台帳の行だけを数えていた実装では 2 件で止まり、永久に発動しない。
+qreset
+qled
+qrow "$QB" 0.2 -                       # 薄い回
+qrow $((QB + 43200)) 0.2 -             # 薄い回
+qrow $((QB + 86400)) open              # いま走っている回（連続の起点から外れる）
+qcommit $((QB + 21600)) "台帳を1行も書かずに走った回"
+out=$(ROUND_CURRENT_EPOCH=$((QB + 86400)) "$QG/bin/round" gaps 12 2>&1)
+grep -q '薄い回が 3 回連続している' <<<"$out"
+check $? "台帳を書かなかった回を挟んだ 薄・無・薄 で、停止条件が発動する"
+grep -q '台帳を1行も書かずに走った回が 1 件ある' <<<"$out"
+check $? "  「締めを飛ばした回」とは別の行として出す（直し方が違う2つを1つに潰さない）"
+! grep -q '締めを飛ばした回が' <<<"$out"
+check $? "  台帳を書かなかった回を「締めを飛ばした回」に数え込まない"
+
+# --- 煙感知器。commit が窓の内側なら、連続は 2 で止まり発動しない ---
+# **「常に鳴る」実装でも上は通る。** 鳴らない側を固定しないと、この節は何も守らない。
+qreset
+qled
+qrow "$QB" 0.2 -
+qrow $((QB + 43200)) 0.2 -
+qrow $((QB + 86400)) open
+qcommit $((QB + 300)) "窓の内側で打った commit"
+out=$(ROUND_CURRENT_EPOCH=$((QB + 86400)) "$QG/bin/round" gaps 12 2>&1)
+! grep -q '薄い回が' <<<"$out"
+check $? "  窓の内側の commit は回として数えない（薄い回 2 件では発動しない）"
+
+# --- times は台帳だけを読む。gaps に入力を足したとき、ここを巻き添えで壊した ---
+# 実際この日、`' "$F"` を一括置換して times の入力に別ファイルを混ぜ、静かに壊した。
+# **計器を足すとき、同じファイルの隣の節が同じ形をしていることに注意が向かない。**
+qreset
+qled; qrow "$QB" 0.4 +
+out=$("$QG/bin/round" times 2>&1)
+grep -q '測れた回 1 / 1 件' <<<"$out"
+check $? "  gaps に入力を足しても、times は台帳だけを読み続ける"
+
+# ── R. 原稿の字数の目安が、1か所だけで定義されているか（2026-09-07 追加） ────────
+# venture/book/count.sh は目安を OUTLINE.md の TARGET_CHARS マーカーから読む。
+# 写し取ると、目安を見直したときに計器だけが古い数字を報告し続ける
+# （memory/OPERATING.md §11 の WORK_BRANCH と同じ形の欠陥。実際 47,500 で1度起きた）。
+echo
+echo "R. 原稿の字数の目安が1か所だけで定義されているか（2026-09-07 追加）"
+
+RO="$SRC/venture/book/OUTLINE.md"
+RC="$SRC/venture/book/count.sh"
+
+n=$(grep -cE 'TARGET_CHARS=[0-9]+' "$RO" 2>/dev/null || true)
+[ "${n:-0}" -ge 1 ]
+check $? "  OUTLINE.md に TARGET_CHARS マーカーがある"
+
+# count.sh 側に目安の数字が直書きされていないこと。これが本番の欠陥そのものだった
+! grep -qE '(^|[^0-9])(47500|54000|47,500|54,000)([^0-9]|$)' "$RC"
+check $? "  count.sh が目安の数字を写し取っていない"
+
+# 実際に読めていること（マーカーの値が出力に出る）
+tgt=$(grep -oE 'TARGET_CHARS=[0-9]+' "$RO" | tail -1 | cut -d= -f2)
+out=$("$RC" 2>&1 || true)
+grep -q "$(printf '%d' "$tgt" | sed ':a;s/\B[0-9]\{3\}\>/,&/;ta')" <<<"$out"
+check $? "  count.sh の出力に、マーカーの値がそのまま出る"
+
+# 未知の側: マーカーが無い写しでは、既定値に潰さず声を上げて落ちる
+RT="$T/countsh"; rm -rf "$RT"; mkdir -p "$RT/manuscript"
+printf 'x\n' > "$RT/manuscript/00.md"
+grep -v 'TARGET_CHARS' "$RO" > "$RT/OUTLINE.md"
+cp "$RC" "$RT/count.sh"; chmod +x "$RT/count.sh"
+out=$("$RT/count.sh" 2>&1); rc=$?
+[ "$rc" -ne 0 ] && grep -q '目安を読めなかった' <<<"$out"
+check $? "  マーカーが無いとき、既定値に潰さず落ちる（未知を最悪側にも良性側にも倒さない）"
+
+echo
 echo "── 結果: 成功 $pass / 失敗 $fail"
 if [ "$fail" -gt 0 ]; then
   echo ">> 壊れている。直すまで本番で使うな。"
