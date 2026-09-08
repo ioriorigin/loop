@@ -994,6 +994,98 @@ out=$("$RT/count.sh" 2>&1); rc=$?
 [ "$rc" -ne 0 ] && grep -q '目安を読めなかった' <<<"$out"
 check $? "  マーカーが無いとき、既定値に潰さず落ちる（未知を最悪側にも良性側にも倒さない）"
 
+# ── S. main に届いた記憶の検査（round unclosed）の検出力（2026-09-08 追加） ────────
+# 第5回診断「次にやるべきこと1」。09-07 12:44 の回は PR を 13:08 にマージし 13:11 に締めたので、
+# close 行と STATE.md が `main` に載らなかった。次の自分は `main` の複製で起動するので、
+# **その回は「締めを飛ばした回」に見え、メンターへの申し送りに事実誤認が3件混入した。**
+#
+# **ここは合成の台帳だけを使う。origin には触れない。**
+# 実物の `origin/main` を測るのは bin/preflight の項目8 で、あちらはもともと origin に触れる道具である。
+# ネットワーク依存の検査を回帰テストへ入れると、オフラインの回で必ず赤くなり、やがて読まれなくなる
+# （preflight が押せているのに毎回 NG を出していたのと同じ型）。**判定の中身と、実物を渡す場所を分ける。**
+echo
+echo "S. main に届いた記憶の検査（round unclosed）の検出力（2026-09-08 追加）"
+
+SU="$T/unclosed"; rm -rf "$SU"; mkdir -p "$SU"
+
+# 健全な台帳: 最新の1件だけが未クローズ（＝いま走っている回）
+cat > "$SU/ok.md" <<'EOS'
+- `2026-09-01 00:00:00 UTC / 2026-09-01 09:00:00 JST` epoch=1000 回A
+  close `2026-09-01 01:00:00 UTC / 2026-09-01 10:00:00 JST` elapsed=1.0h mark=+ for=1000 済
+- `2026-09-02 00:00:00 UTC / 2026-09-02 09:00:00 JST` epoch=2000 回B
+  close `2026-09-02 01:00:00 UTC / 2026-09-02 10:00:00 JST` elapsed=1.0h mark=+ for=2000 済
+- `2026-09-03 00:00:00 UTC / 2026-09-03 09:00:00 JST` epoch=3000 回C（いま走っている）
+EOS
+out=$("$SRC/bin/round" unclosed "$SU/ok.md" 2>&1); rc=$?
+[ "$rc" -eq 0 ] && grep -q '閉じ残しは無い' <<<"$out"
+check $? "  全部閉じている台帳を、閉じ残し無しと読む"
+
+# 本番の欠陥そのもの: 真ん中の回の close が main に載っていない
+sed '/for=2000/d' "$SU/ok.md" > "$SU/bad.md"
+out=$("$SRC/bin/round" unclosed "$SU/bad.md" 2>&1); rc=$?
+[ "$rc" -eq 1 ] && grep -q '締めが載っていない回' <<<"$out"
+check $? "  締めが載っていない回を検出し、exit 1 を返す"
+
+grep -q '2026-09-02' <<<"$out"
+check $? "  どの回が落ちているかを日時で名指しする"
+
+# **並びは時刻の並びではない**（.gitattributes の merge=union。09-05 に実測して gaps が2つの嘘をついた）。
+# 行の位置を時刻の代理に使っていないことを固定する。
+{ tail -1 "$SU/bad.md"; head -3 "$SU/bad.md"; } > "$SU/shuf.md"
+out=$("$SRC/bin/round" unclosed "$SU/shuf.md" 2>&1); rc=$?
+[ "$rc" -eq 1 ] && grep -q '2026-09-02' <<<"$out"
+check $? "  行が時刻順に並んでいなくても、同じ回を名指しする"
+
+# **いま走っている回を (b) と数えない。** これを間違えると毎回赤くなり、計器が読まれなくなる
+# （gaps が末尾で遡りを切らせていたのと同じ型を、逆側から踏む）。
+out=$("$SRC/bin/round" unclosed "$SU/ok.md" 2>&1)
+! grep -q '2026-09-03' <<<"$out"
+check $? "  いちばん新しい回（まだ閉じる番が来ていない）を告発しない"
+
+# **close 機構より前の回を (b) と数えない。** 原理的に閉じられないものを毎回警告し続けると同じことが起きる
+cat > "$SU/legacy.md" <<'EOS'
+- `2026-08-30 00:00:00 UTC / 2026-08-30 09:00:00 JST` epoch=100 機構より前の回
+- `2026-08-30 12:00:00 UTC / 2026-08-30 21:00:00 JST` epoch=200 機構より前の回
+- `2026-09-01 00:00:00 UTC / 2026-09-01 09:00:00 JST` epoch=1000 回A
+  close `2026-09-01 01:00:00 UTC / 2026-09-01 10:00:00 JST` elapsed=1.0h mark=+ for=1000 済
+- `2026-09-03 00:00:00 UTC / 2026-09-03 09:00:00 JST` epoch=3000 いま走っている
+EOS
+out=$("$SRC/bin/round" unclosed "$SU/legacy.md" 2>&1); rc=$?
+[ "$rc" -eq 0 ] && grep -q '機構より前の 2 件は対象外' <<<"$out"
+check $? "  close 機構より前の回を、閉じ残しとして数えない"
+
+# 標準入力から読めること。preflight は git show の出力を配管で渡す
+out=$("$SRC/bin/round" unclosed - < "$SU/bad.md" 2>&1); rc=$?
+[ "$rc" -eq 1 ] && grep -q '締めが載っていない回' <<<"$out"
+check $? "  標準入力（- ）から台帳を受け取れる"
+
+# preflight が、この判定を origin/main に対して実際に呼んでいること。
+# **呼んでいない検査は、通っていても何も守らない。**
+grep -q 'origin/main:memory/rounds.md' "$SRC/bin/preflight" && grep -q 'round" unclosed' "$SRC/bin/preflight"
+check $? "  preflight が origin/main の台帳をこの判定へ渡している"
+
+# selftest 自身が**本物の origin**に触れていないこと（この節の設計判断を固定する）。
+# 触れ始めた瞬間、オフラインの回で赤くなり、やがて誰も読まなくなる。
+#
+# **この検査は、書いた不変条件が2回間違っていて、2回とも自分で赤くなって直した。記録として残す。**
+#
+# 1回目: `origin/main` という**文字列**を禁じた。ところがこの節は preflight を検査するために
+#   その文字列を grep の引数として持っている。**検査対象の名前を書くこと自体を禁じると、検査が書けない。**
+# 2回目: git の通信サブコマンド（push / ls-remote / fetch）の実行を禁じた。**これも赤くなった。**
+#   selftest は G2 / X / R という**ローカルの bare リポジトリを fixture として作り、
+#   その origin に対して push と ls-remote を実際に走らせている**（B・C・J 節、12 か所）。
+#   **オフラインで完結しているので、守りたい性質は最初から破られていなかった。**
+#
+# **守りたいのは「通信をしないこと」ではなく「このリポジトリの本物の origin に触れないこと」である。**
+# fixture は `git -C "$G2"` のように**別のディレクトリ**を指す。本物を指すのは `$ROOT` / `$SRC` か、
+# -C を持たない裸の git（selftest の cwd はこのリポジトリ）だけである。そこだけを禁じる。
+#
+# **不変条件は、書いた時点では仮説である。** 2回とも「そうなっているはずだ」で書いて、
+# 2回とも実物が違った。OPERATING §7 の「フィールドの名前から意味を推測して結論に使わない」の、
+# **自分のコードについての版**である。
+! grep -qE '^[^#]*git[[:space:]]+(-C[[:space:]]+"?\$(ROOT|SRC)"?[[:space:]]+)?(fetch|ls-remote|push|pull|clone)\b' "$SRC/bin/selftest"
+check $? "  selftest 自身が本物の origin に触れていない（fixture の bare repo は可。オフラインでも緑でいられる）"
+
 echo
 echo "── 結果: 成功 $pass / 失敗 $fail"
 if [ "$fail" -gt 0 ]; then
