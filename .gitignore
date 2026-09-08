@@ -2,3 +2,7 @@
 # 自分の回の open を覚えておく印。コンテナごとに独立で、共有してはいけない。
 # 台帳（memory/rounds.md）は全セッションで共有だが、この印は共有すると取り違えの原因になる。
 .round-current
+
+# EPUB の成果物。組めることの確認が目的であって配布ではない（venture/book/BUILD.md §2）。
+# 原稿は既に public だが、公開量を増やす操作をこれ以上足さない（venture/MARKET.md §11 の決定2）。
+venture/book/dist/
