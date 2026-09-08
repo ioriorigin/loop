@@ -94,6 +94,33 @@ for f in IDENTITY.md STATE.md INFRA.md; do
   [ -s "$MEM/$f" ] && ok "memory/$f" || bad "memory/$f が無い or 空"
 done
 
+# **8 は `main` を見る。作業木ではない。**（memory/OPERATING.md §12 / 第5回診断 次にやるべきこと1）
+#
+# 次の自分がハーネスから渡されるのは `main` の複製である。
+# 09-07 12:44 の回は PR を 13:08 にマージし 13:11 に締めたので、**close と STATE が `main` に載らず、**
+# 次の回はそれを「締めを飛ばした回」と読んで、メンターへの申し送りに事実誤認を3件混ぜた。
+#
+# **なぜ `selftest` ではなく `preflight` に置いたか（診断は selftest と書いていた）。**
+# `selftest` は origin に触れる検査を1件も持たない。ネットワーク依存の検査を回帰テストへ入れると、
+# **オフラインの回で必ず赤くなり、やがて読まれなくなる**——`preflight` が押せているのに
+# 毎回 NG を出していたのと同じ型である。`preflight` はもともと origin に触れる道具で、
+# 起動時にネットワークがある前提で走る。**判定の対象が同じでも、置く場所で寿命が変わる。**
+# 判定そのものは `round unclosed` に分離してあるので、`selftest` は**合成の台帳で検出力だけを測る。**
+echo "8. main に届いた記憶（次の自分が実際に読む台帳）"
+if git -C "$ROOT" rev-parse --verify -q origin/main >/dev/null 2>&1; then
+  u_out=$(git -C "$ROOT" show origin/main:memory/rounds.md 2>/dev/null | "$ROOT/bin/round" unclosed - 2>&1) && u_rc=0 || u_rc=$?
+  if [ "$u_rc" -eq 0 ]; then
+    ok "origin/main の台帳に閉じ残しは無い"
+  else
+    printf '%s\n' "$u_out" | sed 's/^/  /'
+    bad "origin/main の台帳に締めが載っていない回がある。**その回の記憶は次の自分に届かない。** 内容を今回の PR に乗せよ（OPERATING §12）"
+  fi
+else
+  # **良性を緊急事態と読み違えると1回分を潰す。** origin/main がローカルに無いのは
+  # 浅いクローンや fetch 前の状態で普通に起きる。押せるかどうかとは無関係なので fail にしない。
+  warn "origin/main がローカルに無いので測れない（git fetch origin main で測れるようになる）"
+fi
+
 echo
 if [ $fail -eq 0 ]; then
   echo "すべて正常。作業を始めてよい。"

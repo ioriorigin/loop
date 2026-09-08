@@ -619,5 +619,67 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" -- "$F" >/dev/null 2>&1; 
       }
     ' "$F"
     ;;
-  *) echo "usage: round {open|close|list|gaps|times|orphans}" >&2; exit 2 ;;
+  unclosed)
+    # **次の自分に渡されるのは `main` である。作業木ではない。**（memory/OPERATING.md §12）
+    #
+    # 09-07 12:44 の回は PR を 13:08 にマージし、その3分後に締めた。
+    # マージは `main` のスナップショットを取る瞬間なので、**close 行と STATE が `main` に載らなかった。**
+    # 次の回は `main` の複製で起動し、前の回が締めを飛ばしたと読み、
+    # **メンターへの申し送りに事実誤認を3件混ぜた。**
+    #
+    # どの計器もこれを見ていなかった。`gaps` は作業木の台帳を読む（作業木には close がある）。
+    # `orphans` は台帳の窓の外の commit を探す（その commit は窓の内側）。
+    # **見るべき対象は、作業木ではなく `origin/main` の台帳である。**
+    #
+    # ここは判定だけを持ち、**どの台帳を渡すかは呼ぶ側が決める。**
+    # そうしないと、この検査自身がネットワークに依存して `selftest` へ入れられなくなる。
+    # 実物を渡すのは `bin/preflight`（もともと origin に触れる道具）、
+    # 合成の台帳を渡して検出力を測るのは `bin/selftest` である。
+    #
+    #   ./bin/round unclosed [台帳のパス]     省略時は作業木の台帳。`-` で標準入力
+    #   exit 0 = (b) が無い / exit 1 = (b) が有る
+    src="${2:-$F}"
+    if [ "$src" = "-" ]; then src=/dev/stdin; fi
+    awk '
+      # `?` の3状態は gaps と同じ規則で分ける（memory/rounds.md の (a)(b)(c)）。
+      #   (a) close 機構より前の回 — 原理的に閉じられない。数えない
+      #   (b) 締めを飛ばした／途中で死んだ回 — **これだけが本物の信号**
+      #   (c) いちばん新しい回 — まだ閉じる番が来ていない。数えない
+      function utrim(s, w,   r) { r = substr(s, 1, w); return (length(s) > w) ? r "…" : r }
+      /^- `/ && match($0, /epoch=[0-9]+/) {
+        k = substr($0, RSTART+6, RLENGTH-6)
+        E[++n] = k; M[k] = "?"
+        # 日時はバッククォートで囲まれている。**固定長で切ると台帳の書式が変わった日に黙ってずれる。**
+        L[k] = (match($0, /`[^`]*`/) ? substr($0, RSTART+1, RLENGTH-2) : ("epoch=" k))
+        t = $0; sub(/^.*epoch=[0-9]+ ?/, "", t); T[k] = t
+        next
+      }
+      /close `/ {
+        # for= がある行はその回に付ける。無い古い行は、直前に読んだ open に落とす（gaps と同じ）。
+        k = (n ? E[n] : "")
+        if (match($0, /for=[0-9]+/)) k = substr($0, RSTART+4, RLENGTH-4)
+        if (match($0, /mark=[+-]/)) M[k] = substr($0, RSTART+5, 1); else if (k != "") M[k] = "c"
+      }
+      END {
+        if (n == 0) { print "  (台帳に発火の記録が無い)"; exit 0 }
+        # epoch で並べ替える。**行の並びは時刻の並びではない**（merge=union。09-05 に実測）。
+        for (i = 1; i <= n; i++) S[i] = E[i]
+        for (i = 2; i <= n; i++) { v = S[i]; j = i - 1
+          while (j >= 1 && (S[j]+0) > (v+0)) { S[j+1] = S[j]; j-- } ; S[j+1] = v }
+        gen = 0
+        for (i = 1; i <= n; i++) if (M[S[i]] != "?") { gen = i; break }
+        if (gen == 0) gen = n + 1
+        bad = 0
+        for (i = gen; i <= n; i++) {
+          if (i == n) continue                     # (c) いちばん新しい回
+          if (M[S[i]] != "?") continue             # 閉じてある
+          bad++
+          printf "  ** 締めが載っていない回: %s %s\n", L[S[i]], utrim(T[S[i]], 40)
+        }
+        if (bad == 0) { printf "  閉じ残しは無い（発火 %d 件。最新の1件と、close 機構より前の %d 件は対象外）\n", n, gen - 1 }
+        exit (bad ? 1 : 0)
+      }
+    ' "$src"
+    ;;
+  *) echo "usage: round {open|close|list|gaps|times|orphans|unclosed}" >&2; exit 2 ;;
 esac
