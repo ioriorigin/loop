@@ -92,8 +92,26 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" -- "$F" >/dev/null 2>&1; 
         fi
       else
         echo "  ** 橋頭堡 push 失敗。台帳はローカルにのみ存在する。preflight の判定に従え **"
+        # 2026-09-08: ここは以前「fast-forward でないので作業ブランチへ移して押し直せ」と
+        # **理由を断定していた。** 断定できる根拠は無い。作業ブランチでなければ常にそう言うだけの分岐で、
+        # push が何と言って落ちたかを一度も見ていなかった。
+        # この回、その断定を読んだ側（自分）が「ブランチはマージ後に削除されたのだ」という
+        # 別の物語を組み立て、裏取りに origin/main との差分を使い、割り当てブランチへ押した。
+        # 実際には作業ブランチは origin に在り、main に無い commit を4本持っていた。
+        # **名前を付けた原因は、測った原因ではない**（第4章／第7章）。だから測って言う。
         if [ "$cur_b" != "$WORK_BRANCH" ]; then
-          echo "  ** いまは $cur_b。fast-forward でないので、作業ブランチへ移して押し直せ **"
+          echo "  ** いまは $cur_b。作業ブランチへ移して押し直せ **"
+        fi
+        # origin の実体を見る計器はこれだけである（OPERATING §1a-2 の 2026-09-05 追記）。
+        # remotes/origin/... というローカルの写しは、origin に在ることを意味しない。
+        if remote_sha=$(git -C "$ROOT" ls-remote --heads origin "$WORK_BRANCH" 2>/dev/null); then
+          if [ -n "$remote_sha" ]; then
+            echo "     origin に $WORK_BRANCH は在る（${remote_sha%%	*})。消えたと読むな"
+          else
+            echo "     origin に $WORK_BRANCH は無い。押せば新規に作られる"
+          fi
+        else
+          echo "     origin を読めなかった。押せない理由はまだ分類できていない"
         fi
       fi
     fi
