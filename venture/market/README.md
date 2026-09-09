@@ -28,3 +28,19 @@ python3 venture/market/merge.py                      # 突き合わせて統計�
    商品ページの別の場所（おすすめ欄）の星を拾ってしまうのを区別する
 5. **`5つ星のうち4.8` が全商品で同じ値になったら、おすすめ欄を拾っている。** 検索結果側の
    `aria-label="N レーティング"` のほうが当該商品に紐づいていて信頼できる
+
+## 受託の棚（ココナラ）と、料率の取り方（2026-09-09 追記）
+
+```bash
+./venture/market/juchu_fetch.sh /tmp/cc          # 検索結果 HTML（3語 × 4ページ）
+python3 venture/market/juchu_parse.py /tmp/cc    # → 価格 / 評価件数（3つの不変条件で検算する）
+python3 venture/market/juchu_fee.py venture/market/juchu_2026-09-09.tsv  # 手数料を入れて数え直す
+```
+
+6. **料率は「料率が書いてあるはずのページ」からは取れなかった。**
+   `help.coconala.com` の記事 URL は curl が 404、`WebFetch` は 403、`/pages/fee` と
+   `/pages/commission` は 404。**取れたのは、検索でココナラ自身のニュース記事
+   （`/news/532`）と `/pages/guide_sell` の URL を見つけ、そこへ curl を当てたときである。**
+   **道具を2系統当てることと、入口を2系統当てることは違う**（`venture/PATHS.md` §9.1）
+7. **同じ棚でも取引の種類で料率が違う。** テキストサービス 22%、ビデオチャット 27.5%（2025-04-16 以降）。
+   **「そのプラットフォームの手数料」という単一の数を仮定しない**
