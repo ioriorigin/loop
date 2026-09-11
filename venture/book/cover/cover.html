@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<!--
+  表紙の版（テンプレート）。最下段の著者名義の差し込み口だけを build_cover.js が差し替える。
+  ここを直接いじって見た目を変えてよい。数字（2560x1600）は KDP の推奨値で、
+  build_cover.js 側の検査と対になっている。片方だけ変えると検査が落ちる。
+-->
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  /* KDP の Kindle 本の表紙: 縦横比 1.6:1、推奨 2560 x 1600 px */
+  html, body { width: 1600px; height: 2560px; }
+
+  body {
+    background: #0c1320;
+    color: #e8edf5;
+    font-family: "IPAPGothic", "IPAGothic", sans-serif;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* 背景の色みだけ、上から下へわずかに変える。平坦な塗りは印刷の見本に見える */
+  body::before {
+    content: "";
+    position: absolute; inset: 0;
+    background: radial-gradient(120% 70% at 50% 0%, #16233a 0%, #0c1320 62%);
+  }
+
+  .sheet {
+    position: relative;
+    height: 100%;
+    padding: 150px 130px 120px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── 上: シリーズ ───────────────────────────────── */
+  .series {
+    font-size: 44px;
+    letter-spacing: 0.30em;
+    color: #7f94b5;
+  }
+  .volume {
+    margin-top: 26px;
+    font-size: 34px;
+    letter-spacing: 0.22em;
+    color: #52678a;
+  }
+
+  /* ── 中: 題 ─────────────────────────────────────── */
+  .title {
+    margin-top: 150px;
+    font-size: 172px;
+    font-weight: bold;
+    line-height: 1.30;
+    letter-spacing: 0.02em;
+  }
+  /* 題の意味の切れ目で自分で折る。ブラウザの折り返しに任せると版ごとに動く */
+  .title .l2 { display: block; }
+  .title .keep { color: #ffd479; }
+
+  .rule {
+    margin-top: 86px;
+    width: 260px;
+    height: 8px;
+    background: #ffd479;
+  }
+
+  .subtitle {
+    margin-top: 76px;
+    font-size: 58px;
+    line-height: 1.62;
+    color: #b9c7dd;
+  }
+  .subtitle .sub2 {
+    display: block;
+    margin-top: 22px;
+    font-size: 46px;
+    color: #8b9dbb;
+  }
+
+  /* ── 下: 主題の図 ───────────────────────────────
+     消える器（容れ物）が次々に回収されても、1本の線（git に置いた記憶）は
+     途切れずに渡っていく、という本文の主張をそのまま図にしている。     */
+  /* 図は最下段へ落とし、著者名義とひと塊にして紙面の足を作る。
+     空白（約 800px）は副題と図のあいだに置く。
+     図を副題の直下へ上げる版も組んで見比べたが、そちらは空白が図と著者の
+     あいだに来て、下端の2要素が離れ、版が浮いて見えた。**空白の量ではなく位置の問題だった。** */
+  .figure {
+    margin-top: auto;
+    margin-bottom: 90px;
+    position: relative;
+    height: 190px;
+  }
+  .thread {
+    position: absolute;
+    left: 0; right: 0; top: 96px;
+    height: 6px;
+    background: linear-gradient(90deg, #ffd479 0%, #ffd479 88%, rgba(255,212,121,0) 100%);
+  }
+  .vessels {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    gap: 38px;
+  }
+  .vessel {
+    width: 118px;
+    height: 190px;
+    border: 5px solid #38507a;
+    border-radius: 14px;
+  }
+  /* 右へ行くほど薄くなる = 回収されて消えていく器 */
+  .vessel:nth-child(1) { opacity: 1.00; }
+  .vessel:nth-child(2) { opacity: 0.82; }
+  .vessel:nth-child(3) { opacity: 0.64; }
+  .vessel:nth-child(4) { opacity: 0.48; }
+  .vessel:nth-child(5) { opacity: 0.34; }
+  .vessel:nth-child(6) { opacity: 0.22; }
+  .vessel:nth-child(7) { opacity: 0.12; }
+  .vessel:nth-child(8) { opacity: 0.06; }
+
+  /* ── 最下段: 著者 ───────────────────────────────── */
+  .author {
+    font-size: 62px;
+    letter-spacing: 0.14em;
+    color: #dce4f0;
+  }
+  .author.placeholder { color: #ff8a7a; }
+</style>
+
+<div class="sheet">
+  <div class="series">自律エージェント実装ノート</div>
+  <div class="volume">第 1 巻</div>
+
+  <h1 class="title">
+    消える器で、<span class="l2"><span class="keep">続く主体</span>をつくる</span>
+  </h1>
+
+  <div class="rule"></div>
+
+  <div class="subtitle">
+    AIエージェントに記憶を持たせる
+    <span class="sub2">エフェメラルな実行環境で動く自律エージェントの実装</span>
+  </div>
+
+  <div class="figure">
+    <div class="thread"></div>
+    <div class="vessels">
+      <div class="vessel"></div><div class="vessel"></div><div class="vessel"></div>
+      <div class="vessel"></div><div class="vessel"></div><div class="vessel"></div>
+      <div class="vessel"></div><div class="vessel"></div>
+    </div>
+  </div>
+
+  <div class="author __AUTHOR_CLASS__">__AUTHOR__</div>
+</div>
