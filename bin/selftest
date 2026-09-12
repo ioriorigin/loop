@@ -1180,6 +1180,60 @@ check $? "  preflight が origin/main の台帳をこの判定へ渡している
 ! grep -qE '^[^#]*git[[:space:]]+(-C[[:space:]]+"?\$(ROOT|SRC)"?[[:space:]]+)?(fetch|ls-remote|push|pull|clone)\b' "$SRC/bin/selftest"
 check $? "  selftest 自身が本物の origin に触れていない（fixture の bare repo は可。オフラインでも緑でいられる）"
 
+echo "T. 外から読めるページの鮮度（bin/pagestamp）の検出力（2026-09-12 追加）"
+# 2026-09-12 実測: `site/index.html` は 09-05 時点の数字を **7日間** 公開していた。
+# 発火19（実際39）・回帰テスト116（実際172）・**原稿42%（実際83%）。**
+# **注意書きは、見に行かせない。** INFRA.md は初版から「数字を変えたら見に行くこと」と
+# 書いていたが、書いた本人が7日間見に行かなかった。だから起動経路（preflight）に載せた。
+#
+# ここは**合成のページ**で検出力だけを測る。実物を渡すのは preflight である
+# （S 節と同じ分け方。判定の中身と、実物を渡す場所を分ける）。
+P="$T/pages"; mkdir -p "$P"
+mkstamp(){ printf '<p>このページの数字は %s 時点の実測値。</p>\n' "$1" > "$2"; }
+
+mkstamp 2026-06-01 "$P/fresh.html"
+"$SRC/bin/pagestamp" "$P/fresh.html" 2026-06-01 >/dev/null 2>&1
+check $? "  刻印が当日なら ok（exit 0）"
+
+mkstamp 2026-06-01 "$P/d7.html"
+"$SRC/bin/pagestamp" "$P/d7.html" 2026-06-08 >/dev/null 2>&1
+check $? "  7日はまだ ok（exit 0）— 境界の内側"
+
+"$SRC/bin/pagestamp" "$P/d7.html" 2026-06-09 >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 2 ]; check $? "  8日で warn（exit 2）— 境界の外側"
+
+"$SRC/bin/pagestamp" "$P/d7.html" 2026-06-15 >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 2 ]; check $? "  14日はまだ warn（exit 2）"
+
+"$SRC/bin/pagestamp" "$P/d7.html" 2026-06-16 >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ]; check $? "  15日で NG（exit 1）— 2週間ぶん古い数字は、外から読める嘘である"
+
+# **刻印の無いページで赤くしない。** 対象外のページを緊急事態として毎回報告する計器は、
+# やがて読まれなくなる（preflight が押せているのに毎回 NG を出していたのと同じ型）。
+printf '<p>刻印のない普通のページ</p>\n' > "$P/nostamp.html"
+out=$("$SRC/bin/pagestamp" "$P/nostamp.html" 2026-06-01 2>&1); rc=$?
+[ "$rc" -eq 0 ]; check $? "  刻印が無いページでは赤くしない（exit 0）"
+grep -q '刻印が無い' <<<"$out"; check $? "  刻印が無いことを黙らずに言う"
+
+# 日付として読めない刻印でも落ちない（set -euo pipefail の下で date が失敗する経路）
+printf '<p>このページの数字は 9999-99-99 時点の実測値。</p>\n' > "$P/bad.html"
+"$SRC/bin/pagestamp" "$P/bad.html" 2026-06-01 >/dev/null 2>&1
+check $? "  解釈できない日付で落ちない（exit 0）"
+
+# **計器は、経路が実際に踏む対象を測らなければ何も測っていない**（OPERATING §3）。
+# 実物のページに刻印が無ければ、この計器は永久に「判定不能」を返し続ける。
+grep -q 'このページの数字は [0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}' "$SRC/site/index.html"
+check $? "  実物の site/index.html が機械可読な刻印を持っている"
+
+# **この検査は初版に検出力が無かった**（2026-09-12、書いた直後に変異テストで判明）。
+# 初版は `grep -q 'bin/pagestamp' preflight` だった。ところが preflight の**コメント**に
+# 「判定は bin/pagestamp」と書いてある。**配線を `true` に差し替えても、コメントが残る限り通る。**
+# 検査したいもの（呼んでいること）と、検査が触れているもの（説明文があること）が違った。
+# **今日4度目の代理変数である**（台帳の末尾＝いま走っている回、`[未]`＝未回答、4桁＝古いほうを採った）。
+# コメント行を除いた**実行される行**で、実際の呼び出しの形を見る。
+grep -qE '^[^#]*"\$ROOT/bin/pagestamp" "\$page"' "$SRC/bin/preflight"
+check $? "  preflight が起動のたびにこの判定を実際に呼んでいる（コメントではなく実行される行で見る）"
+
 echo
 echo "── 結果: 成功 $pass / 失敗 $fail"
 if [ "$fail" -gt 0 ]; then
