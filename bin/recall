@@ -74,8 +74,35 @@ asks="$ROOT/venture/ASKS.md"
 # 見出しを52字で切る。cut -c はバイトで数える実装があり日本語を文字の途中で割るので、
 # bin/round が utrim で解いたのと同じくマルチバイト安全に切る。
 _ask_trim() { printf '%s' "${1:-?}" | perl -CSD -Mutf8 -ne 'chomp; print length($_)>52 ? substr($_,0,52)."…" : $_'; }
+#
+# **`[未]` の見出しだけを数えていた（2026-09-12 修正）。**
+# ASKS.md は追記専用である（記憶の不可侵原則）。だから依頼が片付いても、
+# 取り下げても、**見出しの `[未]` は永久にそのまま残る。**
+# 訂正は後ろに追記される節として書かれ、**この計器はそれを一度も読んでいなかった。**
+#
+# 実際に出ていた嘘が2つある（2026-09-12 に実測）。
+#   1. **A-008 は 09-11 に取り下げられている**——「表紙の用意そのものは、もうオーナーの工程ではない」。
+#      それでも「9日待っている段階2の関門」として毎回外へ出ていた
+#   2. **A-004b が2行に数えられていた。** 256 行目の見出しは A-004b の優先度の訂正であって、
+#      別の依頼ではない。**訂正を見出しで書いた瞬間、計器には依頼が1件増える**
+# つまり「16件が最長9日待っている」は、**実際には14件**である。
+#
+# **これは前の回が STATE に書いた型そのものである**——「要約して出す計器は、要約に載る側だけを外へ運ぶ」。
+# あちらは A-005 の見出しと本文が正反対だった件で、**留保が外へ出ない**ことに気づいて書いた。
+# こちらは**訂正そのものが外へ出ない**。気づいた当人が、同じ計器の同じ性質を直していなかった。
+#
+# **直し方は、追記で解決を宣言できるようにすることである。** 見出しを書き換えれば計器は直るが、
+# それは過去の記述の書き換えになる（禁止事項7）。だから ASKS.md の末尾に追記する台帳を1本決めて、
+# **計器がそちらも読む。** 書式は1行1件:
+#   - **解決:** A-008 / 2026-09-11 / 取り下げ / 理由
+#
+# 畳むのと落とすのは違う。**同じ ID の見出しが2本あれば1件に畳むが、畳んだことは出す。**
+# 解決台帳が名指しした ID が見出しに無ければ、それも出す。
+# **未知は既定値（＝無かったこと）に潰さない**（OPERATING §3。この節が 09-08 に踏んだ型）。
 if [ -f "$asks" ]; then
   now=$(date -u +%s); n=0; oldest=0; nodate=0
+  declare -A ask_age ask_head ask_undated resolved_on resolved_why resolved_hit
+  ask_order=(); resolved_order=()
   # **起票行を持たない項目を、黙って捨てない（2026-09-08 修正）。**
   # 旧実装は「見出しで n=1 にして、起票行が来たら出す」だけだった。
   # 起票行が来ないまま次の見出しが来ると、cur が上書きされて前の項目は消える。
@@ -85,14 +112,55 @@ if [ -f "$asks" ]; then
   # 書いてあるのに、**本文へ移した結果、本文に書き忘れた項目が黙って対象外になった。**
   # 同じ型が、それを避けるために書かれた同じ関数の中で再発している（第5回診断 出来ていない点6）。
   # 未知は既定値（＝無かったこと）に潰さず、未知として出す（OPERATING §3）。
+  #
+  # **ID は見出しの先頭の語から取る。** 訂正の見出し（「A-004b の『急がない』を撤回する」）も
+  # 先頭は同じ ID なので、**畳む側に自動的に落ちる。** ID を持たない見出しは見出しそのものを鍵にする。
+  _ask_id() {
+    local h="${1:-?}" id
+    id=$(printf '%s' "$h" | grep -oE '^A-[0-9]+[a-z]*' || true)
+    printf '%s' "${id:-$h}"
+  }
+  # 1件を確定させる。`age` が空なら起票行を読めなかった回である。
+  _ask_put() {
+    local id="$1" head="$2" age="${3:-}"
+    if [ -z "${ask_head[$id]+x}" ]; then ask_order+=("$id"); ask_head["$id"]="$head"; fi
+    if [ -n "$age" ]; then
+      # **畳むときは古いほうを残す。** 訂正の見出しのほうが新しいので、
+      # 新しい側を採ると滞留日数が短く出る＝自分に都合よく間違う。
+      if [ -z "${ask_age[$id]+x}" ] || [ "$age" -gt "${ask_age[$id]}" ]; then ask_age["$id"]="$age"; fi
+    else
+      ask_undated["$id"]=1
+    fi
+  }
   _flush_undated() {
     [ "${n:-0}" -eq 0 ] && return 0
-    nodate=$((nodate+1))
-    printf '   ?日  %s  ** 起票行が無い **\n' "$(_ask_trim "${cur:-?}")"
+    _ask_put "$(_ask_id "${cur:-?}")" "${cur:-?}" ""
     n=0
   }
+  fence=0
   while IFS= read -r line; do
+    # **``` の内側は書式の見本であって、データではない。**
+    # これを書いた当日、解決台帳の書式見本（`- **解決:** <ID> / ...`）が実データとして読まれ、
+    # 「この ID の [未] 見出しが無い」と報告された。**文書の中に道具への入力を置くと、
+    # 説明と入力が同じ文字列になる。** 囲いで分ける。
+    case "$line" in '```'*) fence=$((1-fence)); continue ;; esac
+    [ "$fence" -eq 1 ] && continue
     case "$line" in
+      # 解決台帳。**追記だけで依頼を閉じられる唯一の経路である。**
+      '- **解決:**'*)
+        r="${line#'- **解決:** '}"
+        # **`/` で分割して繋ぎ直さない。** 理由の本文にパスが入ると
+        # `venture/book/cover.jpg` が `venture / book / cover.jpg` に化ける（実際に化けた）。
+        # 前から2つだけ剥がして、**残りは触らない。**
+        rid="$r"; rdt=""; rwhy=""
+        case "$r" in *' / '*)
+          rid="${r%%' / '*}"; rest="${r#*' / '}"
+          rdt="$rest"
+          case "$rest" in *' / '*) rdt="${rest%%' / '*}"; rwhy="${rest#*' / '}" ;; esac ;;
+        esac
+        [ -z "$rid" ] && continue
+        if [ -z "${resolved_on[$rid]+x}" ]; then resolved_order+=("$rid"); fi
+        resolved_on["$rid"]="$rdt"; resolved_why["$rid"]="$rwhy" ;;
       # 内側の [未] はクォートする。**裸だと glob の文字クラスとして解釈され、
       # 「[」「未」「]」のどれか1文字にマッチする別物になる。** case 側は引用符で守られていたので
       # 一致し、切り出し側だけが黙って素通りして見出しが丸ごと残っていた（実測で発見）。
@@ -103,12 +171,49 @@ if [ -f "$asks" ]; then
         # 起票行はあるが日付が読めない回も、捨てずに未知として出す
         [ -z "$dt" ] && { _flush_undated; continue; }
         age=$(( (now - $(date -u -d "$dt" +%s)) / 86400 ))
-        [ "$age" -gt "$oldest" ] && oldest=$age
-        printf '  %2d日  %s\n' "$age" "$(_ask_trim "$cur")"
+        _ask_put "$(_ask_id "$cur")" "$cur" "$age"
         n=0 ;;
     esac
   done < "$asks"
   _flush_undated   # 最後の項目が起票行を持たずに終わる回。ここが無いと末尾の1件が落ちる
+
+  # set -u の下では、空配列の展開が落ちる bash がある。依頼が0件は通常の状態なので、そこで死なせない。
+  for id in ${ask_order[@]+"${ask_order[@]}"}; do
+    if [ -n "${resolved_on[$id]+x}" ]; then resolved_hit["$id"]=1; continue; fi
+    if [ -n "${ask_age[$id]+x}" ]; then
+      age="${ask_age[$id]}"
+      [ "$age" -gt "$oldest" ] && oldest=$age
+      printf '  %2d日  %s\n' "$age" "$(_ask_trim "${ask_head[$id]}")"
+    else
+      nodate=$((nodate+1))
+      printf '   ?日  %s  ** 起票行が無い **\n' "$(_ask_trim "${ask_head[$id]}")"
+    fi
+  done
+
+  # **畳んだことは黙らない。** 同じ ID の見出しが2本あるのは、訂正を見出しで書いたか、
+  # ID を取り違えたかのどちらかで、後者なら依頼が1件消えている。読む側に判断させる。
+  dups=$(grep -oE '^#{2,3} \[未\] A-[0-9]+[a-z]*' "$asks" 2>/dev/null | sed 's/.*\[未\] //' | sort | uniq -d || true)
+  if [ -n "$dups" ]; then
+    echo
+    printf '  ** 同じ ID の見出しが2本以上ある。1件に畳んだ: %s **\n' "$(printf '%s' "$dups" | tr '\n' ' ')"
+    echo "     訂正を見出しで書くと、計器には依頼が1件増える。畳んだ結果が誤りなら ID を直せ。"
+  fi
+
+  if [ "${#resolved_order[@]}" -gt 0 ]; then
+    echo
+    echo "  片付いた依頼（解決台帳。ASKS.md は追記専用なので見出しの [未] は残る）"
+    for id in ${resolved_order[@]+"${resolved_order[@]}"}; do
+      if [ -n "${resolved_hit[$id]+x}" ]; then
+        printf '    %s  %s  %s\n' "${resolved_on[$id]:-?}" "$id" "${resolved_why[$id]}"
+      else
+        # **解決台帳が名指しした ID が見出しに無い。** 黙って捨てると、
+        # 誤記した1件がそのまま「片付いた」ことにされる。
+        printf '    %s  %s  ** この ID の [未] 見出しが無い。誤記か、見出しを消したか **\n' \
+          "${resolved_on[$id]:-?}" "$id"
+      fi
+    done
+  fi
+
   if [ "$oldest" -eq 0 ] && [ "$nodate" -eq 0 ]; then
     echo "  未回答の依頼は無い"
   else

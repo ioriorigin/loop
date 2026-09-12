@@ -108,7 +108,17 @@ done
 # 判定そのものは `round unclosed` に分離してあるので、`selftest` は**合成の台帳で検出力だけを測る。**
 echo "8. main に届いた記憶（次の自分が実際に読む台帳）"
 if git -C "$ROOT" rev-parse --verify -q origin/main >/dev/null 2>&1; then
-  u_out=$(git -C "$ROOT" show origin/main:memory/rounds.md 2>/dev/null | "$ROOT/bin/round" unclosed - 2>&1) && u_rc=0 || u_rc=$?
+  # **「まだ閉じる番が来ていない回」は、台帳の末尾ではなく自分の回の epoch で決める**（2026-09-12 修正）。
+  # `main` は作業ブランチより1回ぶん遅れているので、その末尾は「既に終わった回」である。
+  # 末尾を (c) と決め打ちすると、**締めを飛ばした最新の回が、次の回の open 行が main に届くまで隠れる。**
+  # 09-10 12:45 の回は丸1日隠れ、ここは2回続けて `[ok]` を出した。
+  #
+  # 自分の回の epoch は `.round-current`（`round open` がコンテナに置く印。git 管理外）から取る。
+  # **無ければ渡さない。** 渡されなければ round 側は (c) を1件も除外しない＝余分に告発する側へ倒れる。
+  # `round open` を通っていない回は、そもそも台帳に自分の行が無いので、除外すべき回も無い。
+  my_epoch=$(awk 'NR==1{print $1}' "$ROOT/.round-current" 2>/dev/null || true)
+  case "$my_epoch" in (*[!0-9]*|"") my_epoch="" ;; esac
+  u_out=$(git -C "$ROOT" show origin/main:memory/rounds.md 2>/dev/null | "$ROOT/bin/round" unclosed - "$my_epoch" 2>&1) && u_rc=0 || u_rc=$?
   if [ "$u_rc" -eq 0 ]; then
     ok "origin/main の台帳に閉じ残しは無い"
   else

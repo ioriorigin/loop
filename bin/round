@@ -636,15 +636,32 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" -- "$F" >/dev/null 2>&1; 
     # 実物を渡すのは `bin/preflight`（もともと origin に触れる道具）、
     # 合成の台帳を渡して検出力を測るのは `bin/selftest` である。
     #
-    #   ./bin/round unclosed [台帳のパス]     省略時は作業木の台帳。`-` で標準入力
+    #   ./bin/round unclosed [台帳のパス] [自分の回の epoch]
+    #       台帳のパス: 省略時は作業木の台帳。`-` で標準入力
+    #       自分の回の epoch: **この台帳のどこから先が「まだ閉じる番が来ていない」かを、呼ぶ側が宣言する**
     #   exit 0 = (b) が無い / exit 1 = (b) が有る
+    #
+    # **(c) を台帳の末尾で代用してはいけない**（2026-09-12 修正。09-08 の初版の欠陥）。
+    # 初版は `i == n` を (c) と決め打ちしていた。作業木の台帳ならそれで合う——末尾は必ず自分の回である。
+    # **だが、この判定に実物を渡すのは preflight で、渡すのは `origin/main` の台帳である。**
+    # `main` は作業ブランチより常に1回ぶん遅れているので、**その末尾は「いま走っている回」ではなく
+    # 「既に終わった回」**であり、**締めを飛ばした最新の回は、次の回の open 行が main に届くまで必ず隠れる。**
+    # 09-10 12:45 の回が丸1日隠れ、preflight は2回続けて `[ok]` を出した。
+    #
+    # **これは 09-03 に `gaps` で直したのと同じ型である**（「末尾は必ず『いま走っている回』であり、
+    # 遡りはそこで必ず切れていた」）。09-08 にこの検査を足したとき、その教訓を `gaps` から持ってこなかった。
+    #
+    # **渡されなければ (c) を1件も除外しない。** 呼ぶ側が宣言を忘れたら、黙って見逃すのではなく
+    # 余分に告発する側へ倒す。良性側の既定は、穴が開いたことを誰にも気づかせない
+    # （`push_err_kind` に3度書いた「分類の穴は最悪側に倒れる」の、逆向きの予防である）。
     src="${2:-$F}"
+    mine="${3:-}"
     if [ "$src" = "-" ]; then src=/dev/stdin; fi
-    awk '
+    awk -v mine="$mine" '
       # `?` の3状態は gaps と同じ規則で分ける（memory/rounds.md の (a)(b)(c)）。
       #   (a) close 機構より前の回 — 原理的に閉じられない。数えない
       #   (b) 締めを飛ばした／途中で死んだ回 — **これだけが本物の信号**
-      #   (c) いちばん新しい回 — まだ閉じる番が来ていない。数えない
+      #   (c) mine 以降の回 — まだ閉じる番が来ていない。数えない。**末尾で代用しない**
       function utrim(s, w,   r) { r = substr(s, 1, w); return (length(s) > w) ? r "…" : r }
       /^- `/ && match($0, /epoch=[0-9]+/) {
         k = substr($0, RSTART+6, RLENGTH-6)
@@ -669,17 +686,18 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" -- "$F" >/dev/null 2>&1; 
         gen = 0
         for (i = 1; i <= n; i++) if (M[S[i]] != "?") { gen = i; break }
         if (gen == 0) gen = n + 1
-        bad = 0
+        bad = 0; cur = 0
         for (i = gen; i <= n; i++) {
-          if (i == n) continue                     # (c) いちばん新しい回
+          # (c) まだ閉じる番が来ていない回。**呼ぶ側が宣言した epoch より後ろだけ**が該当する。
+          if (mine != "" && (S[i]+0) >= (mine+0)) { cur++; continue }
           if (M[S[i]] != "?") continue             # 閉じてある
           bad++
           printf "  ** 締めが載っていない回: %s %s\n", L[S[i]], utrim(T[S[i]], 40)
         }
-        if (bad == 0) { printf "  閉じ残しは無い（発火 %d 件。最新の1件と、close 機構より前の %d 件は対象外）\n", n, gen - 1 }
+        if (bad == 0) { printf "  閉じ残しは無い（発火 %d 件。まだ閉じる番が来ていない %d 件と、close 機構より前の %d 件は対象外）\n", n, cur, gen - 1 }
         exit (bad ? 1 : 0)
       }
     ' "$src"
     ;;
-  *) echo "usage: round {open|close|list|gaps|times|orphans|unclosed}" >&2; exit 2 ;;
+  *) echo "usage: round {open|close|list|gaps|times|orphans|unclosed [台帳 [自分のepoch]]}" >&2; exit 2 ;;
 esac
