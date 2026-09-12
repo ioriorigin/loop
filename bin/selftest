@@ -1016,13 +1016,13 @@ cat > "$SU/ok.md" <<'EOS'
   close `2026-09-02 01:00:00 UTC / 2026-09-02 10:00:00 JST` elapsed=1.0h mark=+ for=2000 済
 - `2026-09-03 00:00:00 UTC / 2026-09-03 09:00:00 JST` epoch=3000 回C（いま走っている）
 EOS
-out=$("$SRC/bin/round" unclosed "$SU/ok.md" 2>&1); rc=$?
+out=$("$SRC/bin/round" unclosed "$SU/ok.md" 3000 2>&1); rc=$?
 [ "$rc" -eq 0 ] && grep -q '閉じ残しは無い' <<<"$out"
 check $? "  全部閉じている台帳を、閉じ残し無しと読む"
 
 # 本番の欠陥そのもの: 真ん中の回の close が main に載っていない
 sed '/for=2000/d' "$SU/ok.md" > "$SU/bad.md"
-out=$("$SRC/bin/round" unclosed "$SU/bad.md" 2>&1); rc=$?
+out=$("$SRC/bin/round" unclosed "$SU/bad.md" 3000 2>&1); rc=$?
 [ "$rc" -eq 1 ] && grep -q '締めが載っていない回' <<<"$out"
 check $? "  締めが載っていない回を検出し、exit 1 を返す"
 
@@ -1032,15 +1032,49 @@ check $? "  どの回が落ちているかを日時で名指しする"
 # **並びは時刻の並びではない**（.gitattributes の merge=union。09-05 に実測して gaps が2つの嘘をついた）。
 # 行の位置を時刻の代理に使っていないことを固定する。
 { tail -1 "$SU/bad.md"; head -3 "$SU/bad.md"; } > "$SU/shuf.md"
-out=$("$SRC/bin/round" unclosed "$SU/shuf.md" 2>&1); rc=$?
+out=$("$SRC/bin/round" unclosed "$SU/shuf.md" 3000 2>&1); rc=$?
 [ "$rc" -eq 1 ] && grep -q '2026-09-02' <<<"$out"
 check $? "  行が時刻順に並んでいなくても、同じ回を名指しする"
 
 # **いま走っている回を (b) と数えない。** これを間違えると毎回赤くなり、計器が読まれなくなる
 # （gaps が末尾で遡りを切らせていたのと同じ型を、逆側から踏む）。
-out=$("$SRC/bin/round" unclosed "$SU/ok.md" 2>&1)
+out=$("$SRC/bin/round" unclosed "$SU/ok.md" 3000 2>&1)
 ! grep -q '2026-09-03' <<<"$out"
 check $? "  いちばん新しい回（まだ閉じる番が来ていない）を告発しない"
+
+# ── ここから 2026-09-12 追加。**(c) を台帳の末尾で代用していた欠陥の回帰テスト。** ──────
+#
+# 初版（09-08）は `i == n` を (c) と決め打ちしていた。作業木の台帳ならそれで合う。
+# **だが実物を渡すのは preflight で、渡すのは `origin/main` の台帳である。**
+# main は作業ブランチより常に1回ぶん遅れているので、その末尾は「いま走っている回」ではなく
+# 「既に終わった回」であり、**締めを飛ばした最新の回は、次の回の open 行が main に届くまで隠れた。**
+# 09-10 12:45 の回は丸1日隠れ、preflight は2回続けて `[ok]` を出した。
+
+# 本番で実際に起きた形: **台帳の末尾そのものが、締めを飛ばした回である**
+cat > "$SU/tail-b.md" <<'EOS'
+- `2026-09-01 00:00:00 UTC / 2026-09-01 09:00:00 JST` epoch=1000 回A
+  close `2026-09-01 01:00:00 UTC / 2026-09-01 10:00:00 JST` elapsed=1.0h mark=+ for=1000 済
+- `2026-09-02 00:00:00 UTC / 2026-09-02 09:00:00 JST` epoch=2000 回B（締めを飛ばした。これが末尾）
+EOS
+out=$("$SRC/bin/round" unclosed "$SU/tail-b.md" 4000 2>&1); rc=$?
+[ "$rc" -eq 1 ] && grep -q '2026-09-02' <<<"$out"
+check $? "  台帳の末尾が締めを飛ばした回でも、末尾を理由に見逃さない"
+
+# **呼ぶ側が宣言しなければ、(c) を1件も除外しない。** 良性側の既定を置くと、
+# 呼ぶ側が宣言を忘れた日に、穴が開いたことを誰にも気づかせないまま黙る。
+out=$("$SRC/bin/round" unclosed "$SU/ok.md" 2>&1); rc=$?
+[ "$rc" -eq 1 ] && grep -q '2026-09-03' <<<"$out"
+check $? "  自分の回の epoch を渡さなければ、最新の回も除外せず告発する"
+
+# 宣言された回より**後ろ**も (c) である（並行する回が先に open を積んだ台帳）
+out=$("$SRC/bin/round" unclosed "$SU/ok.md" 2000 2>&1); rc=$?
+[ "$rc" -eq 0 ]
+check $? "  宣言された epoch 以降の回は、まとめて対象外にする"
+
+# preflight が、その宣言を**実際に渡している**こと。
+# **呼んでいない検査は、通っていても何も守らない**——この節の末尾に自分で書いた原則である。
+grep -q '\.round-current' "$SRC/bin/preflight" && grep -qE 'unclosed - "\$my_epoch"' "$SRC/bin/preflight"
+check $? "  preflight が自分の回の epoch を unclosed へ渡している"
 
 # **close 機構より前の回を (b) と数えない。** 原理的に閉じられないものを毎回警告し続けると同じことが起きる
 cat > "$SU/legacy.md" <<'EOS'
@@ -1050,7 +1084,7 @@ cat > "$SU/legacy.md" <<'EOS'
   close `2026-09-01 01:00:00 UTC / 2026-09-01 10:00:00 JST` elapsed=1.0h mark=+ for=1000 済
 - `2026-09-03 00:00:00 UTC / 2026-09-03 09:00:00 JST` epoch=3000 いま走っている
 EOS
-out=$("$SRC/bin/round" unclosed "$SU/legacy.md" 2>&1); rc=$?
+out=$("$SRC/bin/round" unclosed "$SU/legacy.md" 3000 2>&1); rc=$?
 [ "$rc" -eq 0 ] && grep -q '機構より前の 2 件は対象外' <<<"$out"
 check $? "  close 機構より前の回を、閉じ残しとして数えない"
 
