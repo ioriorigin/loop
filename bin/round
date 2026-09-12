@@ -86,13 +86,26 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" -- "$F" >/dev/null 2>&1; 
       cur_b=$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?")
       if git -C "$ROOT" push -q origin "HEAD:refs/heads/$WORK_BRANCH" >/dev/null 2>&1; then
         # **押した先を、いまのブランチの上流として記録する**（2026-09-12 追加）。
-        # ref を明示して押すので、割り当てブランチには上流が付かないままになる。
-        # すると「未押しの commit がある」と読む道具が出てくる——実際、この回の締めで
-        # 停止フックが「claude/jolly-ride-1gc1k3 に未 push の commit が5件ある」と報告した。
-        # **5件とも押してある。** 比べる相手が存在しない ref だったので、そう見えただけである。
-        # 押し先は変えない（記録を gaps が読む場所から外さない）。**読む側の基準点だけを正す。**
-        # 誤報はコストである——`push_err_kind` の stale 誤分類で1回を潰したのと同じ型で、
-        # あちらは良性を異常と読み、こちらは押せているものを押せていないと読む。
+        # `git status` が ahead/behind を出せるようになる。それだけの効用である。
+        #
+        # **【同日・訂正】これを足したときの理由書きは誤っていた。**
+        # 「停止フックが未 push と誤報するのは上流が付いていないからだ」と書いたが、**違う。**
+        # フックの実物を読んで測った（`~/.claude/stop-hook-git-check.sh`）。
+        # あれは上流の設定を**一切読まない。** `origin/$current_branch` という名前を**組み立てて**
+        # `rev-parse` し、`$upstream..HEAD` を数える。だから上流を設定しても件数は動かない。
+        # 実際、設定した直後の締めでも同じ報告が出た（5件 → 7件に増えただけだった）。
+        #
+        # **本当の原因は、中身の無い remote-tracking ref である。**
+        # ハーネスは起動時に `refs/remotes/origin/<割り当てブランチ>` を作るが、
+        # **origin に同名のブランチは存在しない**（`ls-remote` が空）。
+        # その ref は起動時点の `main` に固定されたまま動かないので、
+        # **この回が打った commit は全部その先に積まれ、全部「未 push」に見える。**
+        # 解いたのは割り当てブランチを実際に origin へ押したこと（重複であって、押し先の変更ではない）。
+        #
+        # **記録として残す価値があるのは、直し方ではなく外し方のほうである。**
+        # 1回目は道具の実物を読まずに「上流が無いからだ」と名前を付け、**辻褄の合う物語で止まった。**
+        # `bin/round` の下の 2026-09-08 の追記に、同じことが書いてある——
+        # 「**名前を付けた原因は、測った原因ではない**」。**その注意書きの30行上で、同じ日に踏んだ。**
         git -C "$ROOT" rev-parse --verify -q "refs/remotes/origin/$WORK_BRANCH" >/dev/null 2>&1 \
           && git -C "$ROOT" branch --set-upstream-to="origin/$WORK_BRANCH" >/dev/null 2>&1 || true
         if [ "$cur_b" = "$WORK_BRANCH" ]; then
