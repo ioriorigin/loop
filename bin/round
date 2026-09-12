@@ -85,6 +85,16 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" -- "$F" >/dev/null 2>&1; 
       # ref を明示しているので、弾かれても割り当てブランチが origin に作られることはない。
       cur_b=$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?")
       if git -C "$ROOT" push -q origin "HEAD:refs/heads/$WORK_BRANCH" >/dev/null 2>&1; then
+        # **押した先を、いまのブランチの上流として記録する**（2026-09-12 追加）。
+        # ref を明示して押すので、割り当てブランチには上流が付かないままになる。
+        # すると「未押しの commit がある」と読む道具が出てくる——実際、この回の締めで
+        # 停止フックが「claude/jolly-ride-1gc1k3 に未 push の commit が5件ある」と報告した。
+        # **5件とも押してある。** 比べる相手が存在しない ref だったので、そう見えただけである。
+        # 押し先は変えない（記録を gaps が読む場所から外さない）。**読む側の基準点だけを正す。**
+        # 誤報はコストである——`push_err_kind` の stale 誤分類で1回を潰したのと同じ型で、
+        # あちらは良性を異常と読み、こちらは押せているものを押せていないと読む。
+        git -C "$ROOT" rev-parse --verify -q "refs/remotes/origin/$WORK_BRANCH" >/dev/null 2>&1 \
+          && git -C "$ROOT" branch --set-upstream-to="origin/$WORK_BRANCH" >/dev/null 2>&1 || true
         if [ "$cur_b" = "$WORK_BRANCH" ]; then
           echo "  橋頭堡 push ok — この回が起きた事実は外部に残った"
         else
