@@ -152,6 +152,16 @@ for page in "$ROOT/site/index.html"; do
   esac
 done
 
+echo "10. 原稿（売り物）の数値が、リポジトリの実物と一致しているか"
+# **まえがきは「本文がリポジトリと食い違っていたら、リポジトリのほうが正しい」と書き、**
+# **読者に検算を勧めている。** 2026-09-13、その検算が4章ぶん合っていなかった。
+# 原因は浅いクローンで、`git rev-list --count` が接ぎ木の境界で黙って止まっていた。
+# 判定は bin/bookcheck。**浅い回は「測れない」と言って赤くしない**（良性を緊急事態と読まない）。
+if [ -d "$ROOT/venture/book/manuscript" ]; then
+  b_out=$("$ROOT/bin/bookcheck" "$ROOT/venture/book/manuscript" 2>&1) && b_rc=0 || b_rc=$?
+  if [ "$b_rc" -eq 0 ]; then ok "$b_out"; else bad "$b_out"; fi
+fi
+
 echo
 if [ $fail -eq 0 ]; then
   echo "すべて正常。作業を始めてよい。"
