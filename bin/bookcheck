@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# 原稿（商品そのもの）の数値主張が、リポジトリの実物と一致するかを測る。
+#
+# なぜ要るか（2026-09-13）。原稿の4章の脚注が、**再現できないコミット数を載せていた。**
+# まえがき 78 / 第3章 109 / 第4章 116 / 第5章 82 —— 実測は 104 / 139 / 147 / 110 である。
+# **原因は浅いクローンだった。** 定期発火のコンテナは `--depth` 付きで clone される
+# （2026-09-13 に `git rev-parse --is-shallow-repository` が `true` を返して判明。
+# unshallow したら main の累計が 195 → 243 に増えた）。
+# `git rev-list --count` は**接ぎ木の境界で黙って止まる。エラーは出ない。**
+#
+# まえがきは「**本文がリポジトリと食い違っていたら、リポジトリのほうが正しい**」と書き、
+# 読者に検算を勧めている。**その検算が合わない状態で売り物にしていた。**
+#
+# **この検査そのものが浅いクローンで赤くなってはいけない。**
+# 浅いのは環境の既定であって欠陥ではない。良性の状態を緊急事態と読み違えると1回分を潰す
+# （memory/OPERATING.md §3）。だから浅いときは「測れない」と言って 0 で抜ける。
+#
+# 使い方:
+#   bin/bookcheck [原稿ディレクトリ]
+#
+# 終了コード:
+#   0 = 全部一致（または浅くて測れない。**測れないことで赤くしない**）
+#   1 = 再現できない数値がある／脚注の無い章がある
+
+set -euo pipefail
+
+DIR="${1:-venture/book/manuscript}"
+
+if [ ! -d "$DIR" ]; then
+  echo "原稿ディレクトリが無い: $DIR"
+  exit 1
+fi
+
+fail=0
+checked=0
+
+# 脚注（いつ時点の数字かの断り書き）が全章にあるか。
+# **これが無い章は、時が経つと「現在の事実」として読まれる。**
+for f in "$DIR"/*.md; do
+  if ! grep -q '時点' "$f"; then
+    echo "  [NG] $(basename "$f"): いつ時点の数値かの断り書きが無い"
+    fail=1
+  fi
+done
+
+# コミット数の主張を、実物の git で検算する。
+# 脚注の形式: 「コミット N 件」…「git rev-list --count <SHA>」
+shallow=$(git rev-parse --is-shallow-repository 2>/dev/null || echo unknown)
+if [ "$shallow" != "false" ]; then
+  echo "  [--] クローンが浅い（is-shallow=$shallow）。コミット数は検算できない。"
+  # **バッククォートを二重引用符の中に置くとコマンド置換になる。**
+  # 初版はここに `git fetch --unshallow` と書いていて、浅い回に**実際に fetch を走らせていた。**
+  # 検査が副作用を持つと、検査した瞬間に測っている対象が変わる。単引用符で書く。
+  echo '       git fetch --unshallow してからもう一度叩くこと。**浅さは欠陥ではない。**'
+else
+  for f in "$DIR"/*.md; do
+    # 章ごとに、主張された件数と、再現コマンドの SHA を1組ずつ拾う
+    # 「コミット N 件」「コミット数は N 件」「N 個のコミット」の3通りを拾う。
+    # **書き方が1つだと思い込むと、拾えなかった章が黙って検査を素通りする。**
+    n=$(grep -oE 'コミット(数は)? [0-9,]+ 件|[0-9,]+ 個のコミット' "$f" | tail -1 | grep -oE '[0-9,]+' | tr -d ',' || true)
+    sha=$(grep -oE 'git rev-list --count [0-9a-f]{7,40}' "$f" | tail -1 | awk '{print $NF}' || true)
+    [ -n "$n" ] && [ -n "$sha" ] || continue
+    if ! git cat-file -e "$sha^{commit}" 2>/dev/null; then
+      echo "  [NG] $(basename "$f"): 脚注の $sha がこのリポジトリに無い"
+      fail=1; continue
+    fi
+    actual=$(git rev-list --count "$sha")
+    checked=$((checked + 1))
+    if [ "$actual" != "$n" ]; then
+      echo "  [NG] $(basename "$f"): コミット $n 件と書いてあるが、$sha の実測は $actual 件"
+      fail=1
+    fi
+  done
+  echo "  [ok] コミット数の主張 $checked 件を実物の git で検算した"
+fi
+
+if [ "$fail" -ne 0 ]; then
+  echo ">> 原稿の数値がリポジトリと食い違っている。**まえがきは読者に検算を勧めている。**"
+  exit 1
+fi
+# **検算していないのに「一致している」と言わない。**
+# 浅い回でその一文を出すと、読んだ側は検算が通ったと受け取る。
+# この回が直したのは、まさにその形の嘘である。
+if [ "$shallow" != "false" ]; then
+  echo "脚注の有無だけ確認した。**コミット数は検算していない。**"
+else
+  echo "原稿の数値主張は実物と一致している。"
+fi
