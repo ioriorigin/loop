@@ -78,9 +78,16 @@ for s in log note hypo recall; do
 done
 
 echo "5. 記録系の回帰テスト"
+SELFTEST_N=""
 if [ -x "$ROOT/bin/selftest" ]; then
-  if "$ROOT/bin/selftest" >/dev/null 2>&1; then ok "selftest 全通過"
-  else bad "selftest が失敗している。./bin/selftest を直接実行して原因を見よ"; fi
+  # **件数を捨てない。** 項目9 が公開ページの「回帰テスト N 件」を検算するのに使う。
+  # ここで捨てると、同じ 68 秒を 1 回の起動で 2 度払うことになる。
+  if st_out=$("$ROOT/bin/selftest" 2>&1); then
+    SELFTEST_N=$(printf '%s\n' "$st_out" | grep -oE '成功 [0-9]+' | tail -1 | grep -oE '[0-9]+' || true)
+    ok "selftest 全通過${SELFTEST_N:+（$SELFTEST_N 件）}"
+  else
+    bad "selftest が失敗している。./bin/selftest を直接実行して原因を見よ"
+  fi
 else
   bad "bin/selftest が無い"
 fi
@@ -141,7 +148,14 @@ echo
 # **書いた本人が7日間見に行かなかった。** 注意書きは、見に行かせない。
 # 見に行かせるのは、**起動のたびに必ず走る経路に置くこと**である（H005）。
 # 判定は bin/pagestamp（しきい値と理由はそちらのコメント）。ここは実物を渡すだけ。
-echo "9. 外から読めるページの鮮度（腐った公開ページは、外から読める嘘になる）"
+# **2026-09-14 追記: 鮮度と正しさは別の量である。**
+# この項目は 09-12 から `pagestamp`（刻印の古さ）だけを見ており、
+# 09-14 の起動時に `[ok] …の数字は 2026-09-12 時点（2 日前）` を出した。
+# **その裏で、載っていた 6 件の数値のうち 5 件が既に誤っていた。**
+# 刻印は「いつ測ったか」の代理変数であって、「いま正しいか」ではない。
+# **`数字` と書いておきながら、測っていたのは日付だけだった。**
+# だから判定を2本立てる——鮮度は bin/pagestamp、数値そのものは bin/sitecheck。
+echo "9. 外から読めるページ（刻印の鮮度と、載っている数値そのもの）"
 for page in "$ROOT/site/index.html"; do
   [ -f "$page" ] || continue
   p_out=$("$ROOT/bin/pagestamp" "$page" 2>&1) && p_rc=0 || p_rc=$?
@@ -150,6 +164,9 @@ for page in "$ROOT/site/index.html"; do
     2) warn "$p_out" ;;
     *) bad "$p_out" ;;
   esac
+  # selftest の件数は項目5で既に測っている。**1 回の起動で 2 度走らせない**（68 秒かかる）。
+  s_out=$("$ROOT/bin/sitecheck" "$page" "${SELFTEST_N:-}" 2>&1) && s_rc=0 || s_rc=$?
+  if [ "$s_rc" -eq 0 ]; then ok "$s_out"; else bad "$s_out"; fi
 done
 
 echo "10. 原稿（売り物）の数値が、リポジトリの実物と一致しているか"

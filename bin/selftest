@@ -1300,6 +1300,87 @@ grep -qE '^[^#]*`git fetch --unshallow`' "$SRC/bin/bookcheck" && check 1 "  検�
 grep -qE '^[^#]*"\$ROOT/bin/bookcheck"' "$SRC/bin/preflight"
 check $? "  preflight が起動のたびにこの判定を実際に呼んでいる"
 
+
+# ── V. 公開ページの数値が、リポジトリの実物と一致するか（2026-09-14 追加） ────────
+#
+# 2026-09-14 実測: `site/index.html` の刻印は 2 日前で `bin/pagestamp` は `[ok]` を出したが、
+# **載っていた 6 件の数値のうち 5 件が既に誤っていた**——
+# 発火 39（実測 42）/ 仮説 33（34）/ 回帰テスト 172（192）/ メモ 156（160）/ 原稿 44,828 字（45,938）。
+# **刻印の古さは、数値の正しさの代理変数として一対一で動かない。**
+# 今日刻印し直した頁が誤った数値を 6 件載せていても、pagestamp は通す。
+#
+# T 節（腐り）・U 節（原稿の数値）と同じ分け方。**判定は bin/sitecheck、実物を渡すのは preflight。**
+# 合成のページで検出力だけを測るので**オフラインで完結する**（S 節の不変条件）。
+echo
+echo "V. 公開ページの数値（bin/sitecheck）の検出力（2026-09-14 追加）"
+
+V="$T/site"; mkdir -p "$V"
+mkpage(){ printf '<html><body>%s</body></html>\n' "$1" > "$V/p.html"; }
+
+# 実測値は sitecheck が使うのと同じ定義元から取る。
+# **ここで別の数え方をすると、検査と道具がずれたまま両方緑になる。**
+v_rounds=$(grep -cE '^- `20' "$SRC/memory/rounds.md")
+v_notes=$(grep -cE '^- `20' "$SRC/memory/notes/inbox.md")
+
+# 印が無いページは対象外。**赤くしない。そして「一致した」とも言わない**
+mkpage '<p>数字は無い</p>'
+out=$("$SRC/bin/sitecheck" "$V/p.html" 2>&1); rc=$?
+[ "$rc" -eq 0 ]; check $? "  印の無いページで赤くしない（対象外）"
+grep -q '検査していない' <<<"$out"; check $? "  検査していないことを黙らずに言う"
+grep -q '一致している' <<<"$out" && check 1 "  検査していないのに一致と言わない" || check 0 "  検査していないのに一致と言わない"
+
+# 実測と一致する印は通す
+mkpage "<span data-metric=\"rounds\">$v_rounds</span>"
+"$SRC/bin/sitecheck" "$V/p.html" >/dev/null 2>&1
+check $? "  実測と一致する印は通す"
+
+# **1 件でもずれていれば赤くする**（この検査の本体）
+mkpage "<span data-metric=\"rounds\">$((v_rounds + 1))</span>"
+out=$("$SRC/bin/sitecheck" "$V/p.html" 2>&1); rc=$?
+[ "$rc" -eq 1 ]; check $? "  1 件でもずれていれば赤くする"
+grep -q "実測は $v_rounds" <<<"$out"; check $? "  正しい値を併記する（読み手が直せる形で言う）"
+
+# 桁区切りのコンマを数値として読む（頁は 45,938 のように書く）
+mkpage "<span data-metric=\"notes\">$(printf '%s' "$v_notes" | sed ':a;s/\B[0-9]\{3\}\>/,&/;ta')</span>"
+"$SRC/bin/sitecheck" "$V/p.html" >/dev/null 2>&1
+check $? "  桁区切りのコンマが入っていても読める"
+
+# **同じ名前を複数箇所に付けたら、片方だけずれていても捕まえる。**
+# 数値表と本文がずれる形は、この道具が塞ごうとしている欠陥そのものである
+mkpage "<span data-metric=\"rounds\">$v_rounds</span><p><b data-metric=\"rounds\">$((v_rounds + 1))</b></p>"
+"$SRC/bin/sitecheck" "$V/p.html" >/dev/null 2>&1
+check $( [ $? -eq 1 ] && echo 0 || echo 1 ) "  同じ印が複数あるとき、片方のずれを見逃さない"
+
+# **知らない印を黙って無視しない。** 無視すると、付けた本人は検査されたと思い込む
+mkpage '<span data-metric="sales">0</span>'
+out=$("$SRC/bin/sitecheck" "$V/p.html" 2>&1); rc=$?
+[ "$rc" -eq 1 ]; check $? "  知らない印を素通りさせない"
+grep -q '知らない印' <<<"$out"; check $? "  知らない印をそう名指しする"
+
+# 中身から数値を読めない印も告発する
+mkpage '<span data-metric="rounds">たくさん</span>'
+"$SRC/bin/sitecheck" "$V/p.html" >/dev/null 2>&1
+check $( [ $? -eq 1 ] && echo 0 || echo 1 ) "  数値を読めない印を告発する"
+
+# selftest の件数は 68 秒かかるので自分で測らない。
+# **渡されなければ「未検査」と言い、一致とは言わない**（bookcheck が浅い回に取る態度と同じ）
+mkpage '<span data-metric="selftest">99999</span>'
+out=$("$SRC/bin/sitecheck" "$V/p.html" 2>&1); rc=$?
+[ "$rc" -eq 0 ]; check $? "  selftest 件数を渡さなければ、その印で赤くしない"
+grep -q '未検査' <<<"$out"; check $? "  測っていない件数を明示する"
+out=$("$SRC/bin/sitecheck" "$V/p.html" 99999 2>&1)
+grep -q '1 件が実物と一致' <<<"$out"; check $? "  渡されれば selftest の印を実際に検査する"
+"$SRC/bin/sitecheck" "$V/p.html" 12345 >/dev/null 2>&1
+check $( [ $? -eq 1 ] && echo 0 || echo 1 ) "  渡された selftest 件数がずれていれば赤くする"
+
+# **検査が副作用を持たないこと。** 履歴にも origin にも触れない
+# （浅いクローンでも同じ値が出ること＝U 節が踏んだ穴をこちらに持ち込まない）
+grep -qE '^[^#]*git (rev-list|fetch|push|ls-remote)' "$SRC/bin/sitecheck" && check 1 "  検査が git の履歴・通信に触れない" || check 0 "  検査が git の履歴・通信に触れない"
+
+# 実物を渡すのは preflight である（コメントではなく実行される行で見る）
+grep -qE '^[^#]*"\$ROOT/bin/sitecheck"' "$SRC/bin/preflight"
+check $? "  preflight が起動のたびにこの判定を実際に呼んでいる"
+
 echo
 echo "── 結果: 成功 $pass / 失敗 $fail"
 if [ "$fail" -gt 0 ]; then
