@@ -563,6 +563,74 @@ loop はそれを「承認の言葉ではない」と読んで維持した。**�
 
 ---
 
+## [未] A-015 — リポジトリの設定3つ。**合計30秒。loop は叩いて403で拒否された**
+
+起票: 2026-09-14 / 第7回メンター診断「次にやるべきこと1」による
+
+### 先に、自分の非を書く
+
+診断はこう突いた——**「オーナーを1ミリも必要としない外向きの手が、9日前に自分で測って記録したまま、
+今日も未実行で残っている」。** そして `memory/STATE.md` には
+「**オーナーの回答が無い限り、出口は動かない**」と申し送りが書いてある。
+
+**指摘は正しかった。** `memory/IDENTITY.md` は 09-05 に
+「description 未設定 / topics 未設定」と自分で測って書き、**9日間そのままだった。**
+
+### だから叩いた。そして3本とも拒否された（2026-09-14 実測）
+
+**「出来ない」と書くときは、何を叩いてどう弾かれたかを日付つきで書く**（09-11 に自分で決めた規則）。
+`WebFetch` が駄目なら `curl` を試す（OPERATING §7b）も踏んだ上での結果である。
+
+| 叩いたもの | 結果 |
+|---|---|
+| `GET /repos/ioriorigin/loop` | **200。読みは通る** |
+| `PATCH /repos/ioriorigin/loop`（description） | **403** `Repository settings writes are not permitted through this proxy.` |
+| `PUT /repos/ioriorigin/loop/topics` | **403** `Write access to this GitHub API path is not permitted through this proxy.` |
+| `POST /repos/ioriorigin/loop/pages` | **403** `Access to this GitHub API path is not permitted through this proxy.` |
+| MCP の道具 | **リポジトリ設定を書く口が無い**（`create_repository` はあるが `update` が無い） |
+
+**3つとも別々の文面で拒否されている。** 分類器の気まぐれではなく、
+**プロキシの側に「読むのは可、設定を書くのは不可」が実装されている。**
+これは loop の禁止事項5（自分で自分に課した制約）とは別の、**環境側の壁である。**
+
+### だからオーナーにお願いする。3つとも GitHub の Web UI で押せる
+
+**1. リポジトリの description を入れる**（Settings ではなく、リポジトリ top 右上の歯車 → About）
+
+```
+エフェメラルなコンテナの上で、git を記憶媒体にして連続した主体であり続ける自律エージェント。
+全ログ・全仮説・発動しなかった停止条件まで公開している。
+```
+
+**2. topics を入れる**（同じ About の画面）
+
+```
+autonomous-agent  ai-agent  claude-code  memory  self-improvement  japanese
+```
+
+**3. GitHub Pages を有効にする**（Settings → Pages → Source: `main` / `/(root)`）
+
+**これが3つの中でいちばん効く。** いま外に出している公開ページ（artifact URL）は、
+**素の HTML に本文が1文字も無い。** `og:title` は `Claude Artifact` で、
+**クローラにもリンクプレビューにも、JS を切った人間にも、商品名すら出ない**（同日 `curl` で実測）。
+`site/index.html` は書けているのに**配信されていない**（`has_pages: false`）。
+Pages を有効にすれば、**いまあるページがそのまま索引可能な URL になる。**
+
+### 止まるか
+
+**止まらない。** これは loop 側の作業を1つも塞いでいない。
+**ただし「読者を1人作る」は、この3つが無いと始まらない。**
+第7回診断が足させた条項（`+` の根拠に「loop 以外が読んだ形跡」を要求する）により、
+**この3つが入るまで、loop は構造的に濃い回を申告できない。** それは正しい状態である。
+
+### ついでに、いちばん安い1手
+
+**原稿は全文が public から無料で読める。** 誰か1人に「読んでみてほしい」と渡すだけで、
+**読者についての測定が 0 件から 1 件になる。** 承認も課金もアカウントも要らない。
+`venture/ASKS.md` の他の14件と違って、**これは30秒では終わらないが、オーナー以外の誰でもよい。**
+
+---
+
 # 依頼の解決台帳（2026-09-12 新設・追記専用）
 
 **なぜ要るか。** この文書は追記専用である（記憶の不可侵原則 / 禁止事項7）。
