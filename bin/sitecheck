@@ -1,0 +1,203 @@
+#!/usr/bin/env bash
+# 外から読めるページに載っている数値が、いまのリポジトリの実物と一致するかを測る。
+#
+# なぜ要るか（2026-09-14）。**bin/pagestamp は「刻印の日付が古いか」しか測っていない。**
+# 2026-09-14 の起動時、`site/index.html` の刻印は 2 日前なので `preflight` 項目9 は
+# `[ok] …の数字は 2026-09-12 時点（2 日前）` と出した。**その裏で、載っている 6 件の数値のうち
+# 5 件が既に誤っていた**——発火 39（実測 42）/ 仮説 33（34）/ 回帰テスト 172（192）/
+# 気づきメモ 156（160）/ 原稿 44,828 字（45,938 字）。
+# しかも `最長の回 17.5h` は**ラベルが嘘になっていた**（82.2h の回が実在する）。
+#
+# **刻印の古さは、数値の正しさの代理変数として一対一で動かない。**
+# 今日刻印し直した頁が誤った数値を 6 件載せていても通り、
+# 数値が全部正しい頁でも刻印が 8 日前なら warn になる。
+# `memory/STATE.md` が 4 回書いた「代理変数が測りたい量と一対一で動いていない」の 5 本目である。
+#
+# 設計は bin/bookcheck に合わせた。**あちらは売り物（原稿）の数値主張を実物の git で検算する。**
+# こちらは同じことを、もう一つの外向きの面（公開ページ）に対してやる。
+# 09-12 に pagestamp を作った回も、09-13 に bookcheck を作った回も、
+# **公開ページの数値そのものを突き合わせる計器は作らなかった。**
+#
+# ## 頁側の作法 —— 読者が実際に読む文字を測る
+#
+# 検査の対象は `data-metric="名前"` を持つ要素の**中身の文字**である。
+#
+#     <dd><span data-metric="rounds">42</span><small>台帳に記録された起動回数</small></dd>
+#
+# **わざと「宣言ブロック」方式にしなかった。** 頁の隅に機械可読な一覧を置き、
+# 本文とは別にそれを検査すると、**一覧と本文がずれた瞬間に検査が通ったまま嘘が出る。**
+# それはこの道具が塞ごうとしている欠陥そのものである。だから**表示される数字に直接印を付ける。**
+#
+# 印の付いた要素は、入れ子のタグを含まず、数字を素の文字で持つこと。
+# 同じ名前を複数箇所に付けてよい（全部が検査される。本文と数値表のずれも捕まる）。
+#
+# ## 時点に固定した数値（`data-asof`）—— 2026-09-14 追加
+#
+#     <span data-metric="rounds" data-asof="2026-09-14T12:44:31Z">43</span>
+#
+# **`rounds`（発火回数）だけは、いまの値と一致させることが原理的に出来ない。**
+# この検査は `preflight` から起動時に走り、起動時には既に `round open` が台帳へ1行足している。
+# つまり**頁に V と書いて公開した次の起動で、実測は必ず V+1 になる。**
+# **常に赤い検査は、常に緑の検査と同じで、何も測っていない**（OPERATING §13）。
+# 09-14 の起動時に実際そうなった——頁は 42、実測 43。前の回が公開した値が 12 時間で嘘になった。
+#
+# **直し方は、頁の側で主張を時点に固定することである**（仮説 H035-9ad が賭けているのがこれ）。
+# `data-asof` があれば、**その時刻の台帳の値**と突き合わせる。
+# 台帳の open 行は全部 `epoch=` を持つので、**過去のある瞬間の発火回数は正確に再現できる。**
+# こうすると頁の主張は歴史的な言明になり、**以後どれだけ時間が経っても真のままである。**
+#
+# `data-asof` を解釈できるのは、いまのところ `rounds` だけである。
+# **他の印に付いていたら、黙って無視せず「解釈できない」と言って落とす**——
+# 印を付けた本人が「検査された」と思い込むのが、この道具が塞いでいる欠陥そのものである。
+#
+# ## 使い方
+#
+#   bin/sitecheck <ページ> [selftest件数]
+#
+# `selftest` の件数だけは自分で測らない。**68 秒かかるので、1 回の起動で 2 度走らせない。**
+# 既に測っている呼び手（`bin/preflight` 項目5）から渡してもらう。
+# 渡されなければ `selftest` の印は**検査せずに「測っていない」と言う。**
+# **測っていないものを一致と言わない**（bookcheck が浅い回に取る態度と同じ）。
+#
+# ## 終了コード
+#   0 = 印の付いた数値が全部一致した（または印が 1 つも無い＝対象外）
+#   1 = 食い違いがある／知らない名前の印がある
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PAGE="${1:-$ROOT/site/index.html}"
+SELFTEST_N="${2:-}"
+
+if [ ! -f "$PAGE" ]; then
+  echo "ページが無い: $PAGE"
+  exit 0
+fi
+
+# ---- 実測 -------------------------------------------------------------
+# **どれも履歴に触らない。** 浅いクローンでも同じ値が出る
+# （`git rev-list --count` は接ぎ木の境界で黙って止まる。bookcheck のコメント参照）。
+m_rounds=$(grep -cE '^- `20' "$ROOT/memory/rounds.md" 2>/dev/null || echo 0)
+m_notes=$(grep -cE '^- `20' "$ROOT/memory/notes/inbox.md" 2>/dev/null || echo 0)
+m_mentor=$(ls "$ROOT/memory/mentor/"*.md 2>/dev/null | wc -l | tr -d ' ')
+m_hypo=$(grep -oE '^- id: [A-Za-z0-9-]+' "$ROOT/memory/hypotheses.md" 2>/dev/null \
+          | awk '{print $3}' | sort -u | wc -l | tr -d ' ')
+m_hypo_open=$("$ROOT/bin/hypo" list 2>/dev/null | grep -cE '^H' || true)
+m_hypo_closed=$(( m_hypo - m_hypo_open ))
+
+# 原稿。字数の定義元は venture/book/count.sh 1 か所だけである。**ここへ写し取らない**
+# （bin/_common.sh の WORK_BRANCH と同じ形の欠陥を作らない）。
+m_chars=""
+m_pct=""
+if [ -x "$ROOT/venture/book/count.sh" ] || [ -f "$ROOT/venture/book/count.sh" ]; then
+  cnt_out=$(bash "$ROOT/venture/book/count.sh" 2>/dev/null || true)
+  m_chars=$(printf '%s\n' "$cnt_out" | grep -E '^合計' | grep -oE '[0-9]+' | tail -1 || true)
+  m_pct=$(printf '%s\n' "$cnt_out" | grep -oE '[0-9]+%' | tail -1 | tr -d '%' || true)
+fi
+
+# 台帳の、ある時刻における発火回数。**その時刻までに開かれた回だけを数える。**
+# 履歴には触らない（open 行が自分で epoch を持っている）ので、浅いクローンでも同じ値が出る。
+rounds_asof() {
+  awk -v t="$1" '
+    /^- `20/ && match($0, /epoch=[0-9]+/) {
+      e = substr($0, RSTART+6, RLENGTH-6)
+      if (e + 0 <= t + 0) c++
+    }
+    END { print c + 0 }
+  ' "$ROOT/memory/rounds.md" 2>/dev/null || echo 0
+}
+
+measured() {
+  case "$1" in
+    rounds)            printf '%s' "$m_rounds" ;;
+    notes)             printf '%s' "$m_notes" ;;
+    mentor)            printf '%s' "$m_mentor" ;;
+    hypotheses)        printf '%s' "$m_hypo" ;;
+    hypotheses-open)   printf '%s' "$m_hypo_open" ;;
+    hypotheses-closed) printf '%s' "$m_hypo_closed" ;;
+    manuscript-chars)  printf '%s' "$m_chars" ;;
+    manuscript-pct)    printf '%s' "$m_pct" ;;
+    selftest)          printf '%s' "$SELFTEST_N" ;;
+    *)                 return 1 ;;
+  esac
+}
+
+# ---- 頁から主張を拾う -------------------------------------------------
+# 入れ子のタグを含まない素の中身だけを拾う。拾えなかった印は「拾えなかった」と言う——
+# **黙って素通りさせない**（未知を既定値に落とすな。bookcheck の「書き方が1つだと思い込むと」）。
+# タグ全体を掴んでから属性を探す。**`data-asof` を `data-metric` の後ろに書く約束にしない**——
+# 属性の順番を約束にすると、順番を入れ替えた日に黙って検査が外れる。
+claims=$(perl -0777 -ne '
+  while (/<([^<>]*data-metric="([A-Za-z0-9_-]+)"[^<>]*)>([^<]*)</g) {
+    my ($tag, $name, $val) = ($1, $2, $3);
+    # **空の欄を空のまま出さない。** タブは IFS の空白文字なので、
+    # `read` は連続したタブを1つに畳む——`名前<TAB><TAB>値` は2欄として読まれ、値が欄からずれる。
+    # 印の付いた要素の中身が全部「読めない」になって気づいた（2026-09-14）。
+    my $asof = ($tag =~ /data-asof="([^"]*)"/) ? $1 : "-";
+    print "$name\t$asof\t$val\n";
+  }' "$PAGE")
+
+if [ -z "$claims" ]; then
+  echo "$(basename "$PAGE") に data-metric の印が無い。**数値は検査していない**"
+  exit 0
+fi
+
+fail=0
+checked=0
+skipped=0
+
+while IFS=$'\t' read -r name asof raw; do
+  [ -n "$name" ] || continue
+  claimed=$(printf '%s' "$raw" | tr -d ', ' | grep -oE '[0-9]+' | head -1 || true)
+  if [ -z "$claimed" ]; then
+    echo "印 $name の中身から数値を読めない（中身: '$raw'）"
+    fail=1; continue
+  fi
+  [ "$asof" = "-" ] && asof=""
+  if [ -n "$asof" ]; then
+    # **時点に固定された主張。** その時刻の実物と突き合わせる。
+    if [ "$name" != "rounds" ]; then
+      echo "印 $name に data-asof が付いているが、この名前の過去の値は測れない。sitecheck に足すか、印を外すこと"
+      fail=1; continue
+    fi
+    if ! asof_epoch=$(date -u -d "$asof" +%s 2>/dev/null); then
+      echo "印 $name の data-asof を時刻として読めない（$asof）"
+      fail=1; continue
+    fi
+    actual=$(rounds_asof "$asof_epoch")
+    if [ "$claimed" != "$actual" ]; then
+      echo "$name: ページは $asof 時点で $claimed と書いているが、その時点の実測は $actual"
+      fail=1
+    else
+      checked=$((checked + 1))
+    fi
+    continue
+  fi
+  if ! actual=$(measured "$name"); then
+    # **知らない名前を黙って無視すると、印を付けた本人は検査されたと思い込む。**
+    echo "知らない印 $name がページにある。sitecheck に実測を足すこと"
+    fail=1; continue
+  fi
+  if [ -z "$actual" ]; then
+    skipped=$((skipped + 1))
+    continue
+  fi
+  if [ "$claimed" != "$actual" ]; then
+    echo "$name: ページは $claimed と書いているが、実測は $actual"
+    fail=1
+  else
+    checked=$((checked + 1))
+  fi
+done <<< "$claims"
+
+if [ "$fail" -ne 0 ]; then
+  echo ">> 公開ページの数値が実物と食い違っている。**外から読める嘘である**"
+  exit 1
+fi
+
+# **測っていないものを一致と言わない。** 件数を必ず添える。
+if [ "$skipped" -gt 0 ]; then
+  echo "公開ページの数値 $checked 件が実物と一致（$skipped 件は測る材料が無く未検査）"
+else
+  echo "公開ページの数値 $checked 件が実物と一致している"
+fi

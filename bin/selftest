@@ -582,6 +582,43 @@ check $? "  close 機構より前の回を薄い回の連続に数えない"
 grep -q 'close 機構より前の回' <<<"$out"
 check $? "  閉じられない過去は、警告ではなく事実として区別して出す"
 
+# ---- 「3回連続」の2つの読み（2026-09-14 追加。厳格化） --------------------
+# **発火の順**（open の epoch）＝直近に始まった3回／**申告の順**（close の時刻）＝直近に申告された3回。
+# 第7回診断は、82 時間中断した回の `-` が open の位置に挿入されて遡りが到達しない、と突いた。
+# 前の回はこれを保留した——close で並べれば古い `-` が直近の濃い回を押しのけるので、
+# **偏りを別の偏りと交換するだけになりうる**。その見立ては正しい。**だから選ばず、両方で数える。**
+rowat() { # rowat <連番> <印|open> <締めのラベル>
+  local e=$((1788000000 + $1 * 43200))
+  printf '\n- `R%s UTC / R%s JST` epoch=%s 定期発火\n' "$1" "$1" "$e" >> "$L"
+  [ "$2" = open ] && return 0
+  printf '  close `%s UTC / %s JST` elapsed=0.2h mark=%s for=%s 根拠\n' "$3" "$3" "$2" "$e" >> "$L"
+}
+
+# 最初に開いた回が、いちばん最後に締めた（82 時間中断した回の形）。
+# 発火の順では連続 2 で止まるが、**申告の順では 3 に達する。**
+ledger; rowat 1 - "2026-01-09 00:00:00"; rowat 2 + "2026-01-02 00:00:00"
+rowat 3 - "2026-01-03 00:00:00"; rowat 4 - "2026-01-04 00:00:00"; rowat 5 open ""
+out=$("$T/bin/round" gaps 12 2>&1)
+grep -q '薄い回が 3 回連続' <<<"$out"
+check $? "  中断した回の遅れた申告を、発火の順が見落としても停止条件は出る"
+grep -q '申告の順' <<<"$out"
+check $? "  どちらの読みで 3 に達したかを明示する"
+
+# 煙感知器。**上の1件だけだと「常に申告の順で出す」実装でも通る。**
+# 遅れて締めた回が濃ければ、申告の順の連続はそこで切れなければならない
+ledger; rowat 1 + "2026-01-09 00:00:00"; rowat 2 + "2026-01-02 00:00:00"
+rowat 3 - "2026-01-03 00:00:00"; rowat 4 - "2026-01-04 00:00:00"; rowat 5 open ""
+out=$("$T/bin/round" gaps 12 2>&1)
+grep -q '薄い回が' <<<"$out"; [ $? -ne 0 ]
+check $? "  遅れて締めた回が濃ければ、申告の順でも連続は切れる"
+
+# **母集団は1つ。並べ替えるのは順序であって、数える対象ではない。**
+# いま走っている回や、close 機構より前の回が、片方の読みだけで数に入ることがない
+ledger; rowat 1 open ""; rowat 2 open ""; rowat 3 - "2026-01-03 00:00:00"; rowat 4 open ""
+out=$("$T/bin/round" gaps 12 2>&1)
+grep -q '薄い回が' <<<"$out"; [ $? -ne 0 ]
+check $? "  除外する回（(a) と (c)）は、どちらの読みでも同じだけ除外される"
+
 # times は 2026-09-02 から recall に呼ばれていたが、実装が無く exit 2 していた。
 # recall 側の `2>/dev/null || echo "(所要時間をまだ読めない)"` が、**壊れた節を良性に見せていた。**
 ledger; row 1 +; row 2 +; row 3 open
@@ -1233,6 +1270,223 @@ check $? "  実物の site/index.html が機械可読な刻印を持っている
 # コメント行を除いた**実行される行**で、実際の呼び出しの形を見る。
 grep -qE '^[^#]*"\$ROOT/bin/pagestamp" "\$page"' "$SRC/bin/preflight"
 check $? "  preflight が起動のたびにこの判定を実際に呼んでいる（コメントではなく実行される行で見る）"
+
+# ── U. 原稿（商品）の数値主張が、リポジトリの実物と一致するか ─────────────
+#
+# 2026-09-13 実測: 原稿の4章が**再現できないコミット数**を載せていた。
+# まえがき 78 / 第3章 109 / 第4章 116 / 第5章 82 に対し、実測は 104 / 139 / 147 / 110。
+# **原因は浅いクローンである。** 定期発火のコンテナは `--depth` 付きで clone され、
+# `git rev-list --count` は接ぎ木の境界で**黙って止まる。エラーは出ない。**
+# まえがきは「本文がリポジトリと食い違っていたら、リポジトリのほうが正しい」と書いて
+# 読者に検算を勧めている。**その検算が合わない状態で売り物にしていた。**
+#
+# T 節（公開ページの腐り）と同じ分け方をする。**判定は bin/bookcheck、実物を渡すのは preflight。**
+# ここは合成の原稿で検出力だけを測るので、**オフラインで完結する**（S 節の不変条件を守る）。
+echo
+echo "U. 原稿（商品）の数値主張（bin/bookcheck）の検出力（2026-09-13 追加）"
+
+B="$T/book"; mkdir -p "$B/ms"
+
+# 脚注の無い章を告発する
+printf '# 章\n\n本文だけ。\n' > "$B/ms/01-x.md"
+out=$("$SRC/bin/bookcheck" "$B/ms" 2>&1); rc=$?
+[ "$rc" -eq 1 ]; check $? "  いつ時点の数値かの断り書きが無い章で赤くする（exit 1）"
+grep -q '断り書きが無い' <<<"$out"; check $? "  どの章が欠けているかを名指しする"
+
+# 断り書きがあれば通る（コミット数の主張が無い章）
+printf '# 章\n\n*2026 年 9 月 4 日時点の実測値である。*\n' > "$B/ms/01-x.md"
+"$SRC/bin/bookcheck" "$B/ms" >/dev/null 2>&1
+check $? "  断り書きがあり数値の主張が無い章は通す"
+
+# 存在しない SHA を名指ししている脚注を告発する
+printf '# 章\n\n*コミット 999 件。時点の実測値。`git rev-list --count deadbee` で再現できる。*\n' > "$B/ms/02-y.md"
+out=$("$SRC/bin/bookcheck" "$B/ms" 2>&1); rc=$?
+if [ "$(git rev-parse --is-shallow-repository)" = "false" ]; then
+  [ "$rc" -eq 1 ]; check $? "  脚注の SHA がリポジトリに無ければ赤くする"
+  grep -q 'このリポジトリに無い' <<<"$out"; check $? "  無い SHA をそう言う"
+else
+  # 浅いクローンでは検算しないので、この2件は成立しない。**素通りさせず、そう言う。**
+  [ "$rc" -eq 0 ]; check $? "  浅いクローンでは検算せず赤くしない（この回は浅い）"
+  grep -q '検算していない' <<<"$out"; check $? "  検算していないことを黙らずに言う"
+fi
+
+# **数値が食い違えば必ず落ちること**（この検査の本体）
+rm -f "$B/ms/02-y.md"
+real=$(git rev-parse HEAD)
+if [ "$(git rev-parse --is-shallow-repository)" = "false" ]; then
+  n=$(git rev-list --count "$real")
+  printf '# 章\n\n*コミット %s 件。時点の実測値。`git rev-list --count %s` で再現できる。*\n' "$n" "$real" > "$B/ms/03-z.md"
+  "$SRC/bin/bookcheck" "$B/ms" >/dev/null 2>&1
+  check $? "  実測と一致する主張は通す"
+  printf '# 章\n\n*コミット %s 件。時点の実測値。`git rev-list --count %s` で再現できる。*\n' "$((n + 1))" "$real" > "$B/ms/03-z.md"
+  out=$("$SRC/bin/bookcheck" "$B/ms" 2>&1); rc=$?
+  [ "$rc" -eq 1 ]; check $? "  1 件でもずれていれば赤くする"
+  grep -q "実測は $n 件" <<<"$out"; check $? "  正しい値を併記する（読み手が直せる形で言う）"
+else
+  check 0 "  実測と一致する主張は通す（浅いため未実施）"
+  check 0 "  1 件でもずれていれば赤くする（浅いため未実施）"
+  check 0 "  正しい値を併記する（浅いため未実施）"
+fi
+
+# **検査が副作用を持たないこと。** 初版は二重引用符の中にバッククォートで
+# `git fetch --unshallow` と書いており、**浅い回に実際に fetch を走らせていた。**
+# 検査した瞬間に測っている対象が変わる計器は、計器ではない。
+grep -qE '^[^#]*`git fetch --unshallow`' "$SRC/bin/bookcheck" && check 1 "  検査が git fetch を実行しない" || check 0 "  検査が git fetch を実行しない"
+
+# 実物を渡すのは preflight である（コメントではなく実行される行で見る）
+grep -qE '^[^#]*"\$ROOT/bin/bookcheck"' "$SRC/bin/preflight"
+check $? "  preflight が起動のたびにこの判定を実際に呼んでいる"
+
+
+# ── V. 公開ページの数値が、リポジトリの実物と一致するか（2026-09-14 追加） ────────
+#
+# 2026-09-14 実測: `site/index.html` の刻印は 2 日前で `bin/pagestamp` は `[ok]` を出したが、
+# **載っていた 6 件の数値のうち 5 件が既に誤っていた**——
+# 発火 39（実測 42）/ 仮説 33（34）/ 回帰テスト 172（192）/ メモ 156（160）/ 原稿 44,828 字（45,938）。
+# **刻印の古さは、数値の正しさの代理変数として一対一で動かない。**
+# 今日刻印し直した頁が誤った数値を 6 件載せていても、pagestamp は通す。
+#
+# T 節（腐り）・U 節（原稿の数値）と同じ分け方。**判定は bin/sitecheck、実物を渡すのは preflight。**
+# 合成のページで検出力だけを測るので**オフラインで完結する**（S 節の不変条件）。
+echo
+echo "V. 公開ページの数値（bin/sitecheck）の検出力（2026-09-14 追加）"
+
+V="$T/site"; mkdir -p "$V"
+mkpage(){ printf '<html><body>%s</body></html>\n' "$1" > "$V/p.html"; }
+
+# 実測値は sitecheck が使うのと同じ定義元から取る。
+# **ここで別の数え方をすると、検査と道具がずれたまま両方緑になる。**
+v_rounds=$(grep -cE '^- `20' "$SRC/memory/rounds.md")
+v_notes=$(grep -cE '^- `20' "$SRC/memory/notes/inbox.md")
+
+# 印が無いページは対象外。**赤くしない。そして「一致した」とも言わない**
+mkpage '<p>数字は無い</p>'
+out=$("$SRC/bin/sitecheck" "$V/p.html" 2>&1); rc=$?
+[ "$rc" -eq 0 ]; check $? "  印の無いページで赤くしない（対象外）"
+grep -q '検査していない' <<<"$out"; check $? "  検査していないことを黙らずに言う"
+grep -q '一致している' <<<"$out" && check 1 "  検査していないのに一致と言わない" || check 0 "  検査していないのに一致と言わない"
+
+# 実測と一致する印は通す
+mkpage "<span data-metric=\"rounds\">$v_rounds</span>"
+"$SRC/bin/sitecheck" "$V/p.html" >/dev/null 2>&1
+check $? "  実測と一致する印は通す"
+
+# **1 件でもずれていれば赤くする**（この検査の本体）
+mkpage "<span data-metric=\"rounds\">$((v_rounds + 1))</span>"
+out=$("$SRC/bin/sitecheck" "$V/p.html" 2>&1); rc=$?
+[ "$rc" -eq 1 ]; check $? "  1 件でもずれていれば赤くする"
+grep -q "実測は $v_rounds" <<<"$out"; check $? "  正しい値を併記する（読み手が直せる形で言う）"
+
+# 桁区切りのコンマを数値として読む（頁は 45,938 のように書く）
+mkpage "<span data-metric=\"notes\">$(printf '%s' "$v_notes" | sed ':a;s/\B[0-9]\{3\}\>/,&/;ta')</span>"
+"$SRC/bin/sitecheck" "$V/p.html" >/dev/null 2>&1
+check $? "  桁区切りのコンマが入っていても読める"
+
+# **同じ名前を複数箇所に付けたら、片方だけずれていても捕まえる。**
+# 数値表と本文がずれる形は、この道具が塞ごうとしている欠陥そのものである
+mkpage "<span data-metric=\"rounds\">$v_rounds</span><p><b data-metric=\"rounds\">$((v_rounds + 1))</b></p>"
+"$SRC/bin/sitecheck" "$V/p.html" >/dev/null 2>&1
+check $( [ $? -eq 1 ] && echo 0 || echo 1 ) "  同じ印が複数あるとき、片方のずれを見逃さない"
+
+# **知らない印を黙って無視しない。** 無視すると、付けた本人は検査されたと思い込む
+mkpage '<span data-metric="sales">0</span>'
+out=$("$SRC/bin/sitecheck" "$V/p.html" 2>&1); rc=$?
+[ "$rc" -eq 1 ]; check $? "  知らない印を素通りさせない"
+grep -q '知らない印' <<<"$out"; check $? "  知らない印をそう名指しする"
+
+# 中身から数値を読めない印も告発する
+mkpage '<span data-metric="rounds">たくさん</span>'
+"$SRC/bin/sitecheck" "$V/p.html" >/dev/null 2>&1
+check $( [ $? -eq 1 ] && echo 0 || echo 1 ) "  数値を読めない印を告発する"
+
+# selftest の件数は 68 秒かかるので自分で測らない。
+# **渡されなければ「未検査」と言い、一致とは言わない**（bookcheck が浅い回に取る態度と同じ）
+mkpage '<span data-metric="selftest">99999</span>'
+out=$("$SRC/bin/sitecheck" "$V/p.html" 2>&1); rc=$?
+[ "$rc" -eq 0 ]; check $? "  selftest 件数を渡さなければ、その印で赤くしない"
+grep -q '未検査' <<<"$out"; check $? "  測っていない件数を明示する"
+out=$("$SRC/bin/sitecheck" "$V/p.html" 99999 2>&1)
+grep -q '1 件が実物と一致' <<<"$out"; check $? "  渡されれば selftest の印を実際に検査する"
+"$SRC/bin/sitecheck" "$V/p.html" 12345 >/dev/null 2>&1
+check $( [ $? -eq 1 ] && echo 0 || echo 1 ) "  渡された selftest 件数がずれていれば赤くする"
+
+# **検査が副作用を持たないこと。** 履歴にも origin にも触れない
+# （浅いクローンでも同じ値が出ること＝U 節が踏んだ穴をこちらに持ち込まない）
+grep -qE '^[^#]*git (rev-list|fetch|push|ls-remote)' "$SRC/bin/sitecheck" && check 1 "  検査が git の履歴・通信に触れない" || check 0 "  検査が git の履歴・通信に触れない"
+
+# 実物を渡すのは preflight である（コメントではなく実行される行で見る）
+grep -qE '^[^#]*"\$ROOT/bin/sitecheck"' "$SRC/bin/preflight"
+check $? "  preflight が起動のたびにこの判定を実際に呼んでいる"
+
+# ---- 時点に固定された数値（data-asof）。2026-09-14 追加 ----------------
+# **`rounds` は、いまの値と一致させることが原理的に出来ない。**
+# この判定は preflight から起動時に走り、そのとき既に `round open` が台帳へ1行足している。
+# 頁に V と書いて公開すれば、次の起動の実測は必ず V+1 になる。
+# **常に赤い検査は、常に緑の検査と同じで、何も測っていない**（OPERATING §13）。
+# だから頁の側で時点に固定し、**その時点の台帳**と突き合わせる。
+v_first=$(grep -oE 'epoch=[0-9]+' "$SRC/memory/rounds.md" | cut -d= -f2 | sort -n | head -1)
+v_last=$(grep -oE 'epoch=[0-9]+' "$SRC/memory/rounds.md" | cut -d= -f2 | sort -n | tail -1)
+v_at_first=$(awk -v t="$v_first" '/^- `20/ && match($0,/epoch=[0-9]+/){e=substr($0,RSTART+6,RLENGTH-6); if(e+0<=t+0) c++} END{print c+0}' "$SRC/memory/rounds.md")
+v_iso_first=$(date -u -d "@$v_first" +%Y-%m-%dT%H:%M:%SZ)
+v_iso_last=$(date -u -d "@$v_last" +%Y-%m-%dT%H:%M:%SZ)
+
+mkpage "<span data-metric=\"rounds\" data-asof=\"$v_iso_last\">$v_rounds</span>"
+"$SRC/bin/sitecheck" "$V/p.html" >/dev/null 2>&1
+check $? "  最新の時点に固定した発火回数は通る"
+
+# **過去の時点は、その時点の値でなければ通らない。**
+# ここが通らなければ data-asof はただの飾りで、どんな数字でも書けることになる
+mkpage "<span data-metric=\"rounds\" data-asof=\"$v_iso_first\">$v_at_first</span>"
+"$SRC/bin/sitecheck" "$V/p.html" >/dev/null 2>&1
+check $? "  過去の時点に固定した発火回数も、その時点の実測と突き合わせる"
+
+mkpage "<span data-metric=\"rounds\" data-asof=\"$v_iso_first\">$v_rounds</span>"
+out=$("$SRC/bin/sitecheck" "$V/p.html" 2>&1); rc=$?
+[ "$rc" -eq 1 ]; check $? "  時点と数値が食い違えば赤くする"
+grep -q "その時点の実測は $v_at_first" <<<"$out"; check $? "  その時点の正しい値を併記する"
+
+# **属性の順番を約束にしない。** 順番を入れ替えた日に黙って検査が外れる形にしない
+mkpage "<span data-asof=\"$v_iso_last\" data-metric=\"rounds\">$v_rounds</span>"
+"$SRC/bin/sitecheck" "$V/p.html" >/dev/null 2>&1
+check $? "  data-asof を data-metric の前に書いても検査される"
+
+# **解釈できない印に付いていたら、黙って無視せず落とす。**
+# 無視すると、印を付けた本人は「時点で検査された」と思い込む（知らない印と同じ扱い）
+mkpage "<span data-metric=\"notes\" data-asof=\"$v_iso_last\">$v_notes</span>"
+out=$("$SRC/bin/sitecheck" "$V/p.html" 2>&1); rc=$?
+[ "$rc" -eq 1 ]; check $? "  過去の値を測れない印の data-asof を素通りさせない"
+
+mkpage '<span data-metric="rounds" data-asof="きのう">43</span>'
+"$SRC/bin/sitecheck" "$V/p.html" >/dev/null 2>&1
+check $( [ $? -eq 1 ] && echo 0 || echo 1 ) "  時刻として読めない data-asof を告発する"
+
+# **時点つきの印と、時点の無い印が同じ頁に並んでも、両方とも検査される。**
+# 実装は名前・時点・中身をタブで並べて読む。タブは IFS の空白文字なので、
+# **空の時点欄を空のまま出すと `read` が連続タブを畳み、中身が欄からずれて全件が「読めない」になる。**
+# 2026-09-14 に実際に起こした。**片方だけの頁では出ない**ので、混在の頁で固定する
+mkpage "<span data-metric=\"rounds\" data-asof=\"$v_iso_last\">$v_rounds</span><span data-metric=\"notes\">$((v_notes + 1))</span>"
+out=$("$SRC/bin/sitecheck" "$V/p.html" 2>&1)
+grep -q "notes: ページは $((v_notes + 1)) と書いているが、実測は $v_notes" <<<"$out"
+check $? "  時点つきと時点なしが混在しても、時点なしの側が正しく読まれる"
+
+echo
+echo "W. main の台帳は、読む前に取り直しているか（2026-09-14 追加）"
+# **項目3の前段で fetch しているのは作業ブランチだけである。**
+# `origin/main` はコンテナが clone した時点のまま更新されないので、
+# 2026-09-14 の起動時、この項目は**21 時間前に締められた回を「締めが載っていない」と告発した。**
+# 次の自分が渡されるのは**その時点の main** であって、このコンテナが持っている複製ではない。
+pf_fetch=$(grep -nE '^[^#]*git -C "\$ROOT" fetch -q origin main' "$SRC/bin/preflight" | head -1 | cut -d: -f1)
+pf_read=$(grep -nE '^[^#]*git -C "\$ROOT" show origin/main:memory/rounds\.md' "$SRC/bin/preflight" | head -1 | cut -d: -f1)
+[ -n "$pf_fetch" ]; check $? "  preflight が origin/main を実際に取り直している（実行行で見る）"
+[ -n "$pf_read" ] && [ -n "$pf_fetch" ] && [ "$pf_fetch" -lt "$pf_read" ]
+check $? "  取り直しは、読むより前に置かれている"
+
+# **取り直せなかった回で、古い複製の判定を告発として出さない。**
+# オフラインや認証切れは良性でありうる。良性を緊急事態と読み違えると1回分を潰す（OPERATING §3）
+grep -qE '^[^#]*main_fresh' "$SRC/bin/preflight"
+check $? "  取り直せたかどうかを覚えている"
+awk '/^[^#]*main_fresh.*-eq 0/,/^[^#]*fi/' "$SRC/bin/preflight" | grep -qE '^[^#]*warn '
+check $? "  取り直せていない複製での指摘は warn に落とす（bad にしない）"
 
 echo
 echo "── 結果: 成功 $pass / 失敗 $fail"
