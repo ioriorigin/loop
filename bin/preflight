@@ -114,6 +114,16 @@ done
 # 起動時にネットワークがある前提で走る。**判定の対象が同じでも、置く場所で寿命が変わる。**
 # 判定そのものは `round unclosed` に分離してあるので、`selftest` は**合成の台帳で検出力だけを測る。**
 echo "8. main に届いた記憶（次の自分が実際に読む台帳）"
+# **読む前に `origin/main` を取り直す**（2026-09-14 修正。この項目が実際に誤った告発を出した）。
+# 項目2で `fetch` しているのは**作業ブランチだけ**である。`origin/main` はコンテナが
+# clone した時点のまま更新されず、この日は**2マージぶん古かった。**
+# 結果、**21 時間前に締められた回（09-10 12:45）を「締めが載っていない」と告発した。**
+# 次の自分がハーネスから渡されるのは**その時点の `main`** であって、
+# **このコンテナが最後に取ってきた `main` の複製ではない。**
+# **計器は「経路が実際に踏む対象」を測らなければ、何も測っていない**（OPERATING §3 の同じ型。
+# 押す ref を取り違えていた件と、測っている対象が1つずれている点まで同じである）。
+main_fresh=1
+git -C "$ROOT" fetch -q origin main 2>/dev/null || main_fresh=0
 if git -C "$ROOT" rev-parse --verify -q origin/main >/dev/null 2>&1; then
   # **「まだ閉じる番が来ていない回」は、台帳の末尾ではなく自分の回の epoch で決める**（2026-09-12 修正）。
   # `main` は作業ブランチより1回ぶん遅れているので、その末尾は「既に終わった回」である。
@@ -128,6 +138,12 @@ if git -C "$ROOT" rev-parse --verify -q origin/main >/dev/null 2>&1; then
   u_out=$(git -C "$ROOT" show origin/main:memory/rounds.md 2>/dev/null | "$ROOT/bin/round" unclosed - "$my_epoch" 2>&1) && u_rc=0 || u_rc=$?
   if [ "$u_rc" -eq 0 ]; then
     ok "origin/main の台帳に閉じ残しは無い"
+  elif [ "$main_fresh" -eq 0 ]; then
+    # **取り直せなかった複製での指摘は、告発として出さない。**
+    # 古い複製は、既に閉じた回を「締めが載っていない」と言う（この修正のきっかけがそれである）。
+    # オフラインは良性でありうる。**良性を緊急事態と読み違えると1回分を潰す**（OPERATING §3）。
+    printf '%s\n' "$u_out" | sed 's/^/  /'
+    warn "origin/main を取り直せていない。**上は古い複製での判定であり、既に閉じた回を挙げうる。** 先に git fetch origin main"
   else
     printf '%s\n' "$u_out" | sed 's/^/  /'
     bad "origin/main の台帳に締めが載っていない回がある。**その回の記憶は次の自分に届かない。** 内容を今回の PR に乗せよ（OPERATING §12）"

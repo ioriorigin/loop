@@ -1381,6 +1381,76 @@ grep -qE '^[^#]*git (rev-list|fetch|push|ls-remote)' "$SRC/bin/sitecheck" && che
 grep -qE '^[^#]*"\$ROOT/bin/sitecheck"' "$SRC/bin/preflight"
 check $? "  preflight が起動のたびにこの判定を実際に呼んでいる"
 
+# ---- 時点に固定された数値（data-asof）。2026-09-14 追加 ----------------
+# **`rounds` は、いまの値と一致させることが原理的に出来ない。**
+# この判定は preflight から起動時に走り、そのとき既に `round open` が台帳へ1行足している。
+# 頁に V と書いて公開すれば、次の起動の実測は必ず V+1 になる。
+# **常に赤い検査は、常に緑の検査と同じで、何も測っていない**（OPERATING §13）。
+# だから頁の側で時点に固定し、**その時点の台帳**と突き合わせる。
+v_first=$(grep -oE 'epoch=[0-9]+' "$SRC/memory/rounds.md" | cut -d= -f2 | sort -n | head -1)
+v_last=$(grep -oE 'epoch=[0-9]+' "$SRC/memory/rounds.md" | cut -d= -f2 | sort -n | tail -1)
+v_at_first=$(awk -v t="$v_first" '/^- `20/ && match($0,/epoch=[0-9]+/){e=substr($0,RSTART+6,RLENGTH-6); if(e+0<=t+0) c++} END{print c+0}' "$SRC/memory/rounds.md")
+v_iso_first=$(date -u -d "@$v_first" +%Y-%m-%dT%H:%M:%SZ)
+v_iso_last=$(date -u -d "@$v_last" +%Y-%m-%dT%H:%M:%SZ)
+
+mkpage "<span data-metric=\"rounds\" data-asof=\"$v_iso_last\">$v_rounds</span>"
+"$SRC/bin/sitecheck" "$V/p.html" >/dev/null 2>&1
+check $? "  最新の時点に固定した発火回数は通る"
+
+# **過去の時点は、その時点の値でなければ通らない。**
+# ここが通らなければ data-asof はただの飾りで、どんな数字でも書けることになる
+mkpage "<span data-metric=\"rounds\" data-asof=\"$v_iso_first\">$v_at_first</span>"
+"$SRC/bin/sitecheck" "$V/p.html" >/dev/null 2>&1
+check $? "  過去の時点に固定した発火回数も、その時点の実測と突き合わせる"
+
+mkpage "<span data-metric=\"rounds\" data-asof=\"$v_iso_first\">$v_rounds</span>"
+out=$("$SRC/bin/sitecheck" "$V/p.html" 2>&1); rc=$?
+[ "$rc" -eq 1 ]; check $? "  時点と数値が食い違えば赤くする"
+grep -q "その時点の実測は $v_at_first" <<<"$out"; check $? "  その時点の正しい値を併記する"
+
+# **属性の順番を約束にしない。** 順番を入れ替えた日に黙って検査が外れる形にしない
+mkpage "<span data-asof=\"$v_iso_last\" data-metric=\"rounds\">$v_rounds</span>"
+"$SRC/bin/sitecheck" "$V/p.html" >/dev/null 2>&1
+check $? "  data-asof を data-metric の前に書いても検査される"
+
+# **解釈できない印に付いていたら、黙って無視せず落とす。**
+# 無視すると、印を付けた本人は「時点で検査された」と思い込む（知らない印と同じ扱い）
+mkpage "<span data-metric=\"notes\" data-asof=\"$v_iso_last\">$v_notes</span>"
+out=$("$SRC/bin/sitecheck" "$V/p.html" 2>&1); rc=$?
+[ "$rc" -eq 1 ]; check $? "  過去の値を測れない印の data-asof を素通りさせない"
+
+mkpage '<span data-metric="rounds" data-asof="きのう">43</span>'
+"$SRC/bin/sitecheck" "$V/p.html" >/dev/null 2>&1
+check $( [ $? -eq 1 ] && echo 0 || echo 1 ) "  時刻として読めない data-asof を告発する"
+
+# **時点つきの印と、時点の無い印が同じ頁に並んでも、両方とも検査される。**
+# 実装は名前・時点・中身をタブで並べて読む。タブは IFS の空白文字なので、
+# **空の時点欄を空のまま出すと `read` が連続タブを畳み、中身が欄からずれて全件が「読めない」になる。**
+# 2026-09-14 に実際に起こした。**片方だけの頁では出ない**ので、混在の頁で固定する
+mkpage "<span data-metric=\"rounds\" data-asof=\"$v_iso_last\">$v_rounds</span><span data-metric=\"notes\">$((v_notes + 1))</span>"
+out=$("$SRC/bin/sitecheck" "$V/p.html" 2>&1)
+grep -q "notes: ページは $((v_notes + 1)) と書いているが、実測は $v_notes" <<<"$out"
+check $? "  時点つきと時点なしが混在しても、時点なしの側が正しく読まれる"
+
+echo
+echo "W. main の台帳は、読む前に取り直しているか（2026-09-14 追加）"
+# **項目3の前段で fetch しているのは作業ブランチだけである。**
+# `origin/main` はコンテナが clone した時点のまま更新されないので、
+# 2026-09-14 の起動時、この項目は**21 時間前に締められた回を「締めが載っていない」と告発した。**
+# 次の自分が渡されるのは**その時点の main** であって、このコンテナが持っている複製ではない。
+pf_fetch=$(grep -nE '^[^#]*git -C "\$ROOT" fetch -q origin main' "$SRC/bin/preflight" | head -1 | cut -d: -f1)
+pf_read=$(grep -nE '^[^#]*git -C "\$ROOT" show origin/main:memory/rounds\.md' "$SRC/bin/preflight" | head -1 | cut -d: -f1)
+[ -n "$pf_fetch" ]; check $? "  preflight が origin/main を実際に取り直している（実行行で見る）"
+[ -n "$pf_read" ] && [ -n "$pf_fetch" ] && [ "$pf_fetch" -lt "$pf_read" ]
+check $? "  取り直しは、読むより前に置かれている"
+
+# **取り直せなかった回で、古い複製の判定を告発として出さない。**
+# オフラインや認証切れは良性でありうる。良性を緊急事態と読み違えると1回分を潰す（OPERATING §3）
+grep -qE '^[^#]*main_fresh' "$SRC/bin/preflight"
+check $? "  取り直せたかどうかを覚えている"
+awk '/^[^#]*main_fresh.*-eq 0/,/^[^#]*fi/' "$SRC/bin/preflight" | grep -qE '^[^#]*warn '
+check $? "  取り直せていない複製での指摘は warn に落とす（bad にしない）"
+
 echo
 echo "── 結果: 成功 $pass / 失敗 $fail"
 if [ "$fail" -gt 0 ]; then
