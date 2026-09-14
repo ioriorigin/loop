@@ -1248,3 +1248,19 @@ $ git rev-list --count main
 **「空の一覧」を不在の証拠に使わない。** 一覧が空のときは、まず
 **その一覧に映るはずの既知のものが映るか**を確かめる。映らなければ、測れているのは不在ではなく故障である。
 `preflight` が良性を緊急事態と読み違える話の裏返しで、**こちらは故障を「不在」と読み違える形**である。
+
+## 【2026-09-15】公開ページの URL の形が変わった（実測）
+
+`site/index.html` を Version 3 として publish したとき、返ってきた URL の形が変わった。
+
+| | 形 |
+|---|---|
+| Version 1 / 2 のときに返っていた形 | `https://claude.ai/code/artifact/f88a707c-2d5a-40d4-a476-8cd893acc502` |
+| **Version 3 の publish が返した形** | **`https://claude.ai/artifact/Xh56zkqgQAGtcEzTPTf1td`** |
+
+**同じ artifact である**（`Version 3` と返っており、`action:list scope:mine` は**1件しか**返さない）。
+**切り分けられないのは、旧い形がまだ解決するかどうかである。** この回の計器では測れない。
+
+**持って帰る形。外に出した URL は、こちらが何もしなくても形が変わりうる。**
+`memory/` や `venture/REPORT.md` に貼った URL は、**貼った時点の形で固まる。**
+次に外向きの文書へ URL を書くときは、**publish が最後に返した形を使うこと。**
