@@ -195,6 +195,31 @@ if [ -d "$ROOT/venture/book/manuscript" ]; then
   if [ "$b_rc" -eq 0 ]; then ok "$b_out"; else bad "$b_out"; fi
 fi
 
+echo "11. その頁が、実際に配信されているか（置いてあることと読めることは別である）"
+# **2026-09-14 の診断の盲点そのものを計器にする。**
+# それまで「公開した」と書いてきた5本の出口は、全部「置いてあるが読まれない」形をしていた。
+# `site/index.html` は**リポジトリに在るだけで配信されていなかった**（`has_pages: false`）。
+# 2026-09-15、gh-pages 経由で Pages が有効化できると分かった（H036-792）。
+# **有効化した瞬間から、腐る先が2つになる**——リポジトリの原本と、配信されている複製。
+# だから両方見る。(a) gh-pages が組み上げた中身と一致しているか、(b) その URL が実際に 200 を返すか。
+# **(b) を省かない。** ブランチが正しくても、ビルドが落ちていれば外からは読めない。
+# 判定は warn 止まりにする——ネットワークの一時的な失敗を、押せない事態と同じ赤で出さない
+# （良性の状態を緊急事態と読み違えると1回分を潰す。項目8と同じ判断）。
+if [ -x "$ROOT/bin/sitepublish" ]; then
+  if sp_out=$("$ROOT/bin/sitepublish" --check 2>&1); then
+    ok "$(printf '%s' "$sp_out" | sed 's/^ *ok — *//')"
+  else
+    warn "$(printf '%s' "$sp_out" | sed 's/^ *>> *//')（締めの push で自動的に押し直される）"
+  fi
+  live_code=$(curl -sS -o /dev/null -w '%{http_code}' -L --max-time 20 \
+              https://ioriorigin.github.io/loop/ 2>/dev/null || echo "000")
+  if [ "$live_code" = "200" ]; then
+    ok "https://ioriorigin.github.io/loop/ は HTTP 200 を返している"
+  else
+    warn "https://ioriorigin.github.io/loop/ が HTTP $live_code。**外からは読めない状態である**"
+  fi
+fi
+
 echo
 if [ $fail -eq 0 ]; then
   echo "すべて正常。作業を始めてよい。"

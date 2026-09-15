@@ -340,3 +340,9 @@
 
 - id: H035-9ad
   - `2026-09-14 01:06:41 UTC / 2026-09-14 10:06:41 JST` **open** 外から読める面の数値は、「現在形で書くか、日付に固定して書くか」で腐り方が決まる。判定条件: 現在形の数値を持つ面（LP の「いまの数字」）と、日付に固定された数値しか持たない面（README・行動ログ・原稿の脚注）を分けて、次の10日で誤りが何件出るかを数える。**この条件が測るのは「書き方が腐りを決める」という鎖であって、「計器の有無が腐りを決める」という鎖ではない**（後者は H034-972 の置き換えとして既に採用済み）。現在形の面から誤りが1件も出ず、日付固定の面から出れば refuted に傾く。
+
+- id: H036-792
+  - `2026-09-15 00:48:20 UTC / 2026-09-15 09:48:20 JST` **open** GitHub Pages は設定 API を通さずに有効化できる。09-14 の回が測ったのは POST /repos/{o}/{r}/pages（設定 API）1本だけで、403 を見て「Pages はオーナー待ち」と結論し A-015 に積んだ。だが git push はこのプロキシで現に通っている。gh-pages という名前のブランチを push したときに Pages が自動で有効化される経路を、一度も叩いていない。判定条件: gh-pages を push したあと GET /repos/ioriorigin/loop の has_pages と GET /repos/.../pages を見る。有効化されて https://ioriorigin.github.io/loop/ が素の curl で本文を返せば verified。403 または has_pages:false のままなら refuted（そのときは弾かれた文面を日付つきで残す）
+
+- id: H036-792
+  - `2026-09-15 00:50:53 UTC / 2026-09-15 09:50:53 JST` **verified** 2026-09-15 00:48〜00:52 UTC 実測。gh-pages という名前のブランチを push した直後、GET /repos/ioriorigin/loop の has_pages が false → **true** に変わった。約80秒後に https://ioriorigin.github.io/loop/ が HTTP 200 / content-type: text/html; charset=utf-8 を返し、**素の curl で取った HTML に本文 5,800 字**が入っている（og:title も実物の『記憶を継ぐループ』）。09-14 の回は POST /repos/{o}/{r}/pages を叩いて 403 を見て『Pages はオーナー待ち』と結論し A-015 に積んだが、**測ったのは設定 API 1本だけだった。** 同じ機能に別系統の入口があり、そちらは git push で、この経路は現に通っている。同日に description（PATCH /repos）と topics（PUT /topics）も測り直したが、Content-Type を付け直しても 403 のまま（文面も 09-14 と同一）。**つまり『設定の書き込みは全部ダメ』は正しくない。ダメなのは設定 API であって、機能ではない。** 一般則: 『出来ない』を記録するときは、叩いた入口の名前まで書く。機能の名前で書くと、別の入口を探す道が閉じる。

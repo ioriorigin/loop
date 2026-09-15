@@ -1488,6 +1488,82 @@ check $? "  取り直せたかどうかを覚えている"
 awk '/^[^#]*main_fresh.*-eq 0/,/^[^#]*fi/' "$SRC/bin/preflight" | grep -qE '^[^#]*warn '
 check $? "  取り直せていない複製での指摘は warn に落とす（bad にしない）"
 
+echo "X. 配信物の組み上げ（bin/sitebuild）— 素の HTTP で読める形になっているか（2026-09-15 追加）"
+# **2026-09-14 の診断の盲点を、そのまま検査にする。**
+# それまで「公開した」と書いてきた出口は、素の HTML に本文が1文字も無かった
+# （`og:title` が `Claude Artifact`）。`site/index.html` は Artifact の骨組みに
+# 包まれる前提の**断片**であり、doctype も charset も viewport も持っていない。
+# 断片をそのまま配信すると、文字コードはブラウザの推測に委ねられる。
+# **日本語の頁でそれが外れると、読者には文字化けしか届かない。**
+x_out="$(mktemp -d)"
+"$SRC/bin/sitebuild" "$x_out" >/dev/null 2>&1
+check $? "  site/index.html から配信用の文書を組める"
+
+x_page="$x_out/index.html"
+head -1 "$x_page" | grep -qi '^<!doctype html>'
+check $? "  doctype で始まる（断片のままではない）"
+grep -qi '<meta charset="utf-8">' "$x_page"
+check $? "  charset を宣言している（日本語をブラウザの推測に委ねない）"
+grep -qi '<meta name="viewport"' "$x_page"
+check $? "  viewport を宣言している"
+
+# **og: は「リンクを貼られたときに何が出るか」である。**
+# 固定文を書かず本文から拾う——本文が変われば説明も変わる。
+grep -q 'og:title" content="記憶を継ぐループ"' "$x_page"
+check $? "  og:title が実物のタイトルになっている（既定値のままではない）"
+grep -q 'og:description" content="loop' "$x_page"
+check $? "  og:description を本文の lede から拾っている"
+
+# **いちばん重い1件。** 本文が <body> の中に、素の HTML として入っていること。
+# ここが空でも doctype も og: も通る。**通ってしまう検査は、何も測っていない。**
+x_body=$(python3 - "$x_page" <<'PY'
+import re,sys
+h=open(sys.argv[1],encoding='utf-8').read()
+b=h.split('<body>',1)[1] if '<body>' in h else ''
+print(len(re.sub(r'\s+',' ',re.sub(r'<[^>]+>',' ',b)).strip()))
+PY
+)
+[ "${x_body:-0}" -gt 3000 ]
+check $? "  <body> に素の本文が 3,000 字以上ある（実測 ${x_body:-0} 字）"
+
+# Jekyll に通すと `_` で始まる名前や Liquid 記法で中身が化ける。
+[ -f "$x_out/.nojekyll" ]
+check $? "  .nojekyll を置いている"
+
+# **既定値を黙って当てない。** タイトルの無い断片に「無題」を当てて配信すれば、
+# 外から見えるのは既定値であり、壊れていることが誰にも分からない。
+x_bad="$(mktemp -d)"; mkdir -p "$x_bad/site"
+printf '<style>a{}</style>\n<p>x</p>\n' > "$x_bad/site/index.html"
+cp -r "$SRC/bin" "$x_bad/bin"
+"$x_bad/bin/sitebuild" "$x_bad/out" >/dev/null 2>&1
+[ $? -ne 0 ]
+check $? "  <title> の無い断片では止まる（既定のタイトルを当てない）"
+
+rm -rf "$x_out" "$x_bad"
+
+echo "Y. 配信物は、締めの経路に載っているか（2026-09-15 追加）"
+# **毎回わざわざ叩く道具は、いずれ叩かれなくなる**（H005）。
+# 配信物が別ブランチにある以上、押し直しを忘れれば**外から読める面だけが古いまま残る。**
+# `pagestamp` / `sitecheck` が塞いだ腐りの、もう1段外側である。
+grep -qE '^[^#]*publish_site' "$SRC/bin/checkpoint"
+check $? "  checkpoint が配信物を押し直す"
+# **push が通った後にだけ行う。** 記憶の本体より先に配信物を押さない。
+y_push=$(grep -nE '^[^#]*ok — 記憶を外部に固定した' "$SRC/bin/checkpoint" | head -1 | cut -d: -f1)
+y_pub=$(grep -nE '^[^#]*    publish_site$' "$SRC/bin/checkpoint" | head -1 | cut -d: -f1)
+[ -n "$y_push" ] && [ -n "$y_pub" ] && [ "$y_push" -lt "$y_pub" ]
+check $? "  押し直しは、記憶の push が通った後に置かれている"
+# **配信の失敗で締めを落とさない。** 記憶の本体は作業ブランチにある。
+awk '/^publish_site\(\)/,/^}/' "$SRC/bin/checkpoint" | grep -qE '\|\| true'
+check $? "  配信に失敗しても締めは落ちない"
+# 起動時に、置いてあることと読めることの両方を見る。
+grep -qE '^[^#]*bin/sitepublish" --check' "$SRC/bin/preflight"
+check $? "  preflight が gh-pages と組み上げた中身の一致を見る"
+grep -qE '^[^#]*ioriorigin\.github\.io/loop' "$SRC/bin/preflight"
+check $? "  preflight が、その URL が実際に返るかも見る（置いてある≠読める）"
+# **ネットワークの一時的な失敗を、押せない事態と同じ赤で出さない**（OPERATING §3）。
+awk '/^[^#]*live_code=/,/^  fi$/' "$SRC/bin/preflight" | grep -qE '^[^#]*warn '
+check $? "  配信が落ちている指摘は warn に落とす（bad にしない）"
+
 echo
 echo "── 結果: 成功 $pass / 失敗 $fail"
 if [ "$fail" -gt 0 ]; then

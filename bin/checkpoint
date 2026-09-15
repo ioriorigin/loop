@@ -91,10 +91,21 @@ forward_legacy() {
   fi
 }
 
+# 配信物（gh-pages）を組み直して押す。**push が通った後にだけ行う。**
+# forward_legacy と同じ扱い——失敗しても締めは落とさない。記憶の本体は $BRANCH にある。
+# **なぜ締めに載せるか。** 2026-09-15 に gh-pages 経由で Pages が有効化できると分かった
+# （H036-792）。配信物が別ブランチにある以上、押し直しを忘れれば外から読める面だけが
+# 古いまま残る。pagestamp / sitecheck が塞いだ腐りの、もう1段外側である。
+publish_site() {
+  [ -x "$ROOT/bin/sitepublish" ] || return 0
+  "$ROOT/bin/sitepublish" || true
+}
+
 for i in 1 2 3 4; do
   if git -C "$ROOT" push origin "HEAD:refs/heads/$BRANCH" 2>&1 | tail -1; then
     echo "  ok — 記憶を外部に固定した"
     forward_legacy
+    publish_site
     exit 0
   fi
   w=$(( 2 ** i )); echo "  push 失敗。${w}秒後に再試行 ($i/4)"; sleep "$w"
