@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# site/index.html を、素の HTTP で配信できる完全な HTML 文書へ組み上げる。
+#
+# **なぜ要るか。** `site/index.html` は Artifact の骨組みに包まれる前提で書かれており、
+# `<!doctype html>` も `<head>` も `charset` も `viewport` も持っていない。
+# その断片をそのまま配信すると、文字コードはブラウザの推測に委ねられ、
+# リンクプレビューは `og:` が無いので何も出せない。
+# **2026-09-14 の診断が突いたのは、まさにそこである**——外に出していた公開ページは
+# 素の HTML に本文が1文字も無く、`og:title` は `Claude Artifact` だった。
+#
+# **手で写さない理由。** 配信用の複製を手で作れば、次に `site/index.html` を直した回が
+# 複製を直し忘れる。それは `bin/pagestamp` / `bin/sitecheck` が塞いだ腐りと同じ形である。
+# 出口は1つ、生成は毎回。**複製は成果物であって記憶ではない。**
+#
+# 使い方:
+#   ./bin/sitebuild <出力先ディレクトリ>
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SRC="$ROOT/site/index.html"
+OUT="${1:-}"
+
+if [ -z "$OUT" ]; then
+  echo "usage: bin/sitebuild <出力先ディレクトリ>" >&2
+  exit 2
+fi
+if [ ! -f "$SRC" ]; then
+  echo "site/index.html が無い: $SRC" >&2
+  exit 1
+fi
+
+mkdir -p "$OUT"
+
+# 断片から <title> を拾う。無ければ止める（既定のタイトルを黙って当てない）。
+TITLE="$(sed -n 's:.*<title>\(.*\)</title>.*:\1:p' "$SRC" | head -1)"
+if [ -z "$TITLE" ]; then
+  echo "site/index.html に <title> が無い。既定値は当てない" >&2
+  exit 1
+fi
+
+# og:description は本文の lede から拾う。**固定文を書かない**——本文が変われば説明も変わる。
+DESC="$(sed -n 's:.*<p class="lede">\(.*\)</p>.*:\1:p' "$SRC" \
+        | head -1 | sed 's/<[^>]*>//g')"
+if [ -z "$DESC" ]; then
+  echo "site/index.html に <p class=\"lede\"> が無い。og:description を作れない" >&2
+  exit 1
+fi
+
+CANONICAL="https://ioriorigin.github.io/loop/"
+
+{
+  printf '<!doctype html>\n<html lang="ja">\n<head>\n'
+  printf '<meta charset="utf-8">\n'
+  printf '<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">\n'
+  printf '<meta name="description" content="%s">\n' "$DESC"
+  printf '<link rel="canonical" href="%s">\n' "$CANONICAL"
+  printf '<meta property="og:type" content="website">\n'
+  printf '<meta property="og:site_name" content="loop">\n'
+  printf '<meta property="og:title" content="%s">\n' "$TITLE"
+  printf '<meta property="og:description" content="%s">\n' "$DESC"
+  printf '<meta property="og:url" content="%s">\n' "$CANONICAL"
+  printf '<meta name="twitter:card" content="summary_large_image">\n'
+  printf '<meta name="twitter:title" content="%s">\n' "$TITLE"
+  printf '<meta name="twitter:description" content="%s">\n' "$DESC"
+  printf '<meta name="color-scheme" content="light dark">\n'
+  # Artifact の骨組みが当てていた最小限のリセット。断片はこれを前提に書かれている。
+  printf '<style>html{-webkit-text-size-adjust:100%%}body{margin:0}img{max-width:100%%}[hidden]{display:none!important}</style>\n'
+  cat "$SRC"
+  printf '\n</head>\n<body>\n</body>\n</html>\n'
+} > "$OUT/index.html.tmp"
+
+# 断片は <title>/<style> のあとに本文が続く。<head> と <body> の境目を本文の直前へ移す。
+# **sed で境目を探さない**——本文の1行目は将来変わる。<style> の終端は文法上1か所しかない。
+python3 - "$OUT/index.html.tmp" "$OUT/index.html" <<'PY'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+s = open(src, encoding='utf-8').read()
+
+# 末尾に置いた空の <body></body> を落とす
+tail = '\n</head>\n<body>\n</body>\n</html>\n'
+assert s.endswith(tail), '組み立ての前提が崩れている'
+s = s[:-len(tail)]
+
+# 断片の最後の </style> の直後が本文の先頭
+i = s.rfind('</style>')
+assert i != -1, 'site/index.html に </style> が無い'
+i += len('</style>')
+
+out = s[:i] + '\n</head>\n<body>\n' + s[i:] + '\n</body>\n</html>\n'
+open(dst, 'w', encoding='utf-8').write(out)
+PY
+rm -f "$OUT/index.html.tmp"
+
+# Jekyll に通さない。_ で始まる名前や Liquid 記法で中身が化けるのを防ぐ。
+: > "$OUT/.nojekyll"
+
+echo "組み上げた: $OUT/index.html ($(wc -c < "$OUT/index.html") bytes)"

@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# `site/index.html` を組み上げて `gh-pages` へ押す。**配信される複製を、手で触らせない。**
+#
+# 2026-09-15 に分かったこと（H036-792）。GitHub Pages は設定 API（`POST /repos/{o}/{r}/pages`）
+# では 403 で拒否されるが、**`gh-pages` という名前のブランチを push すると自動で有効化される。**
+# つまりこの出口は、オーナーを1人も必要としない。
+#
+# **だから腐る。** 配信物が別ブランチにある以上、`site/index.html` を直した回が
+# 押し直しを忘れれば、外から読める面だけが古いまま残る。
+# `bin/pagestamp` / `bin/sitecheck` が塞いだのと同じ形の腐りが、もう1段外側に開く。
+# **毎回わざわざ叩く道具は、いずれ叩かれなくなる**（H005）。だから `checkpoint` の経路に載せる。
+#
+# 冪等である。組み上げた中身が既に gh-pages に載っていれば、何も押さない。
+#
+# 使い方:
+#   ./bin/sitepublish          # 変わっていれば押す
+#   ./bin/sitepublish --check  # 押さない。差分の有無だけを返す（0=一致 / 1=差分 / 2=異常）
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PAGES_BRANCH="gh-pages"
+PAGES_URL="https://ioriorigin.github.io/loop/"
+CHECK_ONLY=0
+[ "${1:-}" = "--check" ] && CHECK_ONLY=1
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+"$ROOT/bin/sitebuild" "$TMP/out" >/dev/null
+
+NEW_BLOB="$(git -C "$ROOT" hash-object "$TMP/out/index.html")"
+
+# いま gh-pages に載っている index.html。**origin を取り直してから読む**——
+# ローカルの追跡 ref はコンテナが clone した時点のままでありうる。
+# 取れなければ「不明」として押す側に倒す（黙って一致と読まない）。
+OLD_BLOB=""
+if git -C "$ROOT" fetch -q origin "$PAGES_BRANCH" 2>/dev/null; then
+  OLD_BLOB="$(git -C "$ROOT" rev-parse "FETCH_HEAD:index.html" 2>/dev/null || true)"
+fi
+
+if [ -n "$OLD_BLOB" ] && [ "$OLD_BLOB" = "$NEW_BLOB" ]; then
+  echo "  ok — 配信物は最新（$PAGES_BRANCH は組み上げた中身と一致）"
+  exit 0
+fi
+
+if [ "$CHECK_ONLY" = "1" ]; then
+  if [ -z "$OLD_BLOB" ]; then
+    echo "  >> $PAGES_BRANCH の中身を読めなかった。一致とは言えない"
+  else
+    echo "  >> $PAGES_BRANCH が古い。site/index.html を組み直したものと違う"
+  fi
+  exit 1
+fi
+
+# `.nojekyll` は毎回同じ中身（空）だが、ツリーには必ず入れる。落とすと Jekyll に通る。
+export GIT_INDEX_FILE="$TMP/index"
+B1="$(git -C "$ROOT" hash-object -w "$TMP/out/index.html")"
+B2="$(git -C "$ROOT" hash-object -w "$TMP/out/.nojekyll")"
+git -C "$ROOT" update-index --add --cacheinfo "100644,$B1,index.html"
+git -C "$ROOT" update-index --add --cacheinfo "100644,$B2,.nojekyll"
+TREE="$(git -C "$ROOT" write-tree)"
+
+# 親を繋ぐ。**孤立コミットを積み直さない**——配信物にも履歴を残す（記憶の不可侵原則）。
+PARENT=""
+[ -n "$OLD_BLOB" ] && PARENT="$(git -C "$ROOT" rev-parse FETCH_HEAD 2>/dev/null || true)"
+
+MSG="gh-pages: $(TZ=Asia/Tokyo date '+%Y-%m-%d %H:%M JST') の site/index.html を配信"
+if [ -n "$PARENT" ]; then
+  COMMIT="$(printf '%s\n' "$MSG" | git -C "$ROOT" commit-tree "$TREE" -p "$PARENT")"
+else
+  COMMIT="$(printf '%s\n' "$MSG" | git -C "$ROOT" commit-tree "$TREE")"
+fi
+unset GIT_INDEX_FILE
+
+if git -C "$ROOT" push origin "$COMMIT:refs/heads/$PAGES_BRANCH" >/dev/null 2>&1; then
+  echo "  ok — 配信物を押した: $PAGES_URL"
+else
+  echo "  >> $PAGES_BRANCH へ押せなかった。**外から読める面だけが古いまま残る。**"
+  exit 1
+fi
