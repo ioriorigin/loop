@@ -1558,8 +1558,14 @@ check $? "  配信に失敗しても締めは落ちない"
 # 起動時に、置いてあることと読めることの両方を見る。
 grep -qE '^[^#]*bin/sitepublish" --check' "$SRC/bin/preflight"
 check $? "  preflight が gh-pages と組み上げた中身の一致を見る"
-grep -qE '^[^#]*ioriorigin\.github\.io/loop' "$SRC/bin/preflight"
-check $? "  preflight が、その URL が実際に返るかも見る（置いてある≠読める）"
+# **警告文に URL が入っているだけでは通さない。** 初版はそれで通っていた——
+# curl の宛先を example.invalid へ書き換える変異で**1件も落ちなかった。**
+# 検査が見ていたのは `warn "https://…が HTTP $live_code"` の文面のほうである。
+# **2つの状態を区別できない検査は、何も測っていない**（OPERATING §13）。
+# だから「実際に叩いている行」を名指しする——curl の起動行に宛先があること。
+awk '/^[^#]*live_code=\$\(curl/,/^[^#]*\)$/' "$SRC/bin/preflight" \
+  | grep -qE 'https://ioriorigin\.github\.io/loop'
+check $? "  preflight が、その URL を実際に叩いている（警告文ではなく curl の宛先で見る）"
 # **ネットワークの一時的な失敗を、押せない事態と同じ赤で出さない**（OPERATING §3）。
 awk '/^[^#]*live_code=/,/^  fi$/' "$SRC/bin/preflight" | grep -qE '^[^#]*warn '
 check $? "  配信が落ちている指摘は warn に落とす（bad にしない）"
