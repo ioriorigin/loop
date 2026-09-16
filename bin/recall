@@ -99,10 +99,38 @@ _ask_trim() { printf '%s' "${1:-?}" | perl -CSD -Mutf8 -ne 'chomp; print length(
 # 畳むのと落とすのは違う。**同じ ID の見出しが2本あれば1件に畳むが、畳んだことは出す。**
 # 解決台帳が名指しした ID が見出しに無ければ、それも出す。
 # **未知は既定値（＝無かったこと）に潰さない**（OPERATING §3。この節が 09-08 に踏んだ型）。
+#
+# ── 2026-09-16 追加。**解決台帳だけでは、足りない状態が1つ残っていた。** ──
+#
+# 09-15 の自分が、この穴を見つけて、閉じずに書き残している（`venture/ASKS.md` の同日の節）。
+#
+#   > **「片付いた」と「主張が誤っていた」を同じ欄で表現できない。**
+#   > つまり次の回も、その次の回も、いま反証した主張が毎回そのまま外へ出る。
+#   > **いまは計器を足さない。** 気づいて残している穴として、ここに書いておく。
+#
+# **4回の発火をまたいで、そのままだった。** そして実際に出続けていた。この回の起動時の一覧がこれである。
+#
+#   13日  A-005 — …（**放置すると次の発火が空振りする**…   ← 09-11 に本文で反証済み
+#   13日  A-001b — …（**目的の成否がここで反転する**）      ← 09-15 に測って反証済み
+#   11日  A-010 — …（**最優先。放置すると単価が半分のまま固定される**）← 09-16 に反証済み
+#
+# **依頼はまだ生きている。誤っているのは緊急度の主張のほうである。**
+# 解決台帳に載せれば一覧から消えるが、それは嘘になる（まだ未回答である）。
+# 載せなければ、反証済みの主張が毎回そのまま外へ出る。**二択しか無かったので、3つ目を作る。**
+#
+#   - **訂正:** A-005 / 2026-09-11 / 空振りしない。旧ブランチへ ff で押す担保が効いている
+#
+# **訂正台帳は依頼を閉じない。** 滞留日数もそのまま数える。**見出しの隣に訂正を並べるだけである。**
+# 見出しは書き換えない（禁止事項7）。**外へ出る面に、訂正が同じ強さで載ることだけを担保する。**
+#
+# **訂正の本文は切り詰めない。** 見出しを 52 字で切ったせいで本文の留保が外へ出なかった、
+# というのがこの計器の最初の欠陥である（09-11 の A-005）。
+# **同じ計器の同じ場所で、同じ切り方をもう一度やらない。** 短く書くのは書く側の仕事である。
 if [ -f "$asks" ]; then
-  now=$(date -u +%s); n=0; oldest=0; nodate=0
+  now=$(date -u +%s); n=0; oldest=0; nodate=0; ncorrected=0
   declare -A ask_age ask_head ask_undated resolved_on resolved_why resolved_hit
-  ask_order=(); resolved_order=()
+  declare -A corrected_on corrected_why corrected_hit
+  ask_order=(); resolved_order=(); corrected_order=()
   # **起票行を持たない項目を、黙って捨てない（2026-09-08 修正）。**
   # 旧実装は「見出しで n=1 にして、起票行が来たら出す」だけだった。
   # 起票行が来ないまま次の見出しが来ると、cur が上書きされて前の項目は消える。
@@ -132,6 +160,22 @@ if [ -f "$asks" ]; then
       ask_undated["$id"]=1
     fi
   }
+  # 台帳の1行を `<ID> / <日付> / <本文>` に割る。**解決台帳と訂正台帳で同じものを使う。**
+  # 2本書けば、片方だけ直す回が必ず来る（`bin/sitebuild` に自分で書いた「複製は成果物であって記憶ではない」）。
+  #
+  # **`/` で全部分割して繋ぎ直さない。** 理由の本文にパスが入ると
+  # `venture/book/cover.jpg` が `venture / book / cover.jpg` に化ける（実際に化けた）。
+  # 前から2つだけ剥がして、**残りは触らない。**
+  _ledger_split() {
+    local r="$1" rest
+    rid="$r"; rdt=""; rwhy=""
+    case "$r" in *' / '*)
+      rid="${r%%' / '*}"; rest="${r#*' / '}"
+      rdt="$rest"
+      case "$rest" in *' / '*) rdt="${rest%%' / '*}"; rwhy="${rest#*' / '}" ;; esac ;;
+    esac
+    [ -n "$rid" ]
+  }
   _flush_undated() {
     [ "${n:-0}" -eq 0 ] && return 0
     _ask_put "$(_ask_id "${cur:-?}")" "${cur:-?}" ""
@@ -148,19 +192,14 @@ if [ -f "$asks" ]; then
     case "$line" in
       # 解決台帳。**追記だけで依頼を閉じられる唯一の経路である。**
       '- **解決:**'*)
-        r="${line#'- **解決:** '}"
-        # **`/` で分割して繋ぎ直さない。** 理由の本文にパスが入ると
-        # `venture/book/cover.jpg` が `venture / book / cover.jpg` に化ける（実際に化けた）。
-        # 前から2つだけ剥がして、**残りは触らない。**
-        rid="$r"; rdt=""; rwhy=""
-        case "$r" in *' / '*)
-          rid="${r%%' / '*}"; rest="${r#*' / '}"
-          rdt="$rest"
-          case "$rest" in *' / '*) rdt="${rest%%' / '*}"; rwhy="${rest#*' / '}" ;; esac ;;
-        esac
-        [ -z "$rid" ] && continue
+        _ledger_split "${line#'- **解決:** '}" || continue
         if [ -z "${resolved_on[$rid]+x}" ]; then resolved_order+=("$rid"); fi
         resolved_on["$rid"]="$rdt"; resolved_why["$rid"]="$rwhy" ;;
+      # 訂正台帳。**依頼は閉じない。見出しが主張している内容だけを訂正する。**
+      '- **訂正:**'*)
+        _ledger_split "${line#'- **訂正:** '}" || continue
+        if [ -z "${corrected_on[$rid]+x}" ]; then corrected_order+=("$rid"); fi
+        corrected_on["$rid"]="$rdt"; corrected_why["$rid"]="$rwhy" ;;
       # 内側の [未] はクォートする。**裸だと glob の文字クラスとして解釈され、
       # 「[」「未」「]」のどれか1文字にマッチする別物になる。** case 側は引用符で守られていたので
       # 一致し、切り出し側だけが黙って素通りして見出しが丸ごと残っていた（実測で発見）。
@@ -179,7 +218,12 @@ if [ -f "$asks" ]; then
 
   # set -u の下では、空配列の展開が落ちる bash がある。依頼が0件は通常の状態なので、そこで死なせない。
   for id in ${ask_order[@]+"${ask_order[@]}"}; do
-    if [ -n "${resolved_on[$id]+x}" ]; then resolved_hit["$id"]=1; continue; fi
+    if [ -n "${resolved_on[$id]+x}" ]; then
+      resolved_hit["$id"]=1
+      # 片付いた依頼の訂正は、誤記ではない。**「見出しが無い」と告発しないよう拾っておく。**
+      [ -n "${corrected_on[$id]+x}" ] && corrected_hit["$id"]=1
+      continue
+    fi
     if [ -n "${ask_age[$id]+x}" ]; then
       age="${ask_age[$id]}"
       [ "$age" -gt "$oldest" ] && oldest=$age
@@ -187,6 +231,14 @@ if [ -f "$asks" ]; then
     else
       nodate=$((nodate+1))
       printf '   ?日  %s  ** 起票行が無い **\n' "$(_ask_trim "${ask_head[$id]}")"
+    fi
+    # **訂正は、見出しの真下に、切らずに出す。** 依頼は閉じないので日数はそのまま数えたあと。
+    if [ -n "${corrected_on[$id]+x}" ]; then
+      corrected_hit["$id"]=1
+      # **数えるのは、実際に一覧へ出た訂正だけである。** 解決済みの ID にも訂正は載りうるが、
+      # そちらは一覧から消えている。**出ていないものを「出ている件数」に数えない。**
+      ncorrected=$((ncorrected+1))
+      printf '        ↳ 訂正 %s: %s\n' "${corrected_on[$id]:-?}" "${corrected_why[$id]}"
     fi
   done
 
@@ -214,12 +266,26 @@ if [ -f "$asks" ]; then
     done
   fi
 
+  # **訂正台帳が名指しした ID が見出しに無い場合も、黙って捨てない**（解決台帳と同じ扱い）。
+  # 誤記した訂正を黙殺すると、**反証したつもりの主張が、一覧では無傷のまま出続ける。**
+  # それはこの台帳を足して塞いだはずの欠陥そのものである。
+  for id in ${corrected_order[@]+"${corrected_order[@]}"}; do
+    [ -n "${corrected_hit[$id]+x}" ] && continue
+    printf '  ** 訂正台帳の %s に対応する [未] 見出しが無い（%s）。誤記か、ID の取り違えか **\n' \
+      "$id" "${corrected_on[$id]:-?}"
+  done
+
   if [ "$oldest" -eq 0 ] && [ "$nodate" -eq 0 ]; then
     echo "  未回答の依頼は無い"
   else
     echo
     [ "$nodate" -gt 0 ] && \
       echo "  ** 起票日を読めない依頼が ${nodate} 件ある。滞留を測れないので、起票行を足せ **"
+    # **数だけを外へ出すと、形が伝わらない。** 09-12 に「16 件」が水増しだと分かってからも、
+    # 出していたのは訂正後の件数だけだった。**そのうち何件が、自分で反証した主張なのかは出ていない。**
+    # 読む側（オーナー）にとって、15 件の壁と「15 件のうち 9 件は主張が崩れている」は別の景色である。
+    [ "$ncorrected" -gt 0 ] && \
+      echo "  うち ${ncorrected} 件は、主張そのものが loop の測定で訂正済みである（見出しは追記専用なので残る）"
     if [ "$oldest" -gt 0 ]; then
       echo "  最長 ${oldest} 日待っている。**待っている間に進む工程を選べ。**"
       [ "$oldest" -ge 3 ] && echo "  >> 3日以上待っている依頼がある。催促の要否と、待たずに進む道を判断せよ。"
