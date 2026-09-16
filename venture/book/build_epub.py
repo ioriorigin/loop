@@ -78,6 +78,9 @@ blockquote { margin: 1em 0; padding: .1em 1em; border-left: 4px solid #bbb; back
 ul, ol { margin: .8em 0; padding-left: 1.6em; }
 li { margin: .3em 0; }
 hr { border: none; border-top: 1px solid #ccc; margin: 2em 0; }
+/* 各章末の注記（段落ぜんたいを `*…*` で囲んだもの）。日本語の斜体は端末・端末で崩れるので、
+   傾けずに色と大きさで落とす。2026-09-16 追加。 */
+em { font-style: normal; color: #555; font-size: .92em; }
 .title-page { text-align: center; margin-top: 20%; }
 .title-page h1 { border: none; font-size: 1.8em; }
 .title-page .sub { font-size: 1.05em; margin-top: 1.5em; line-height: 1.7; }
@@ -216,7 +219,18 @@ def md_to_xhtml_body(md):
             buf.append(lines[i].strip())
             i += 1
         if buf:
-            out.append("<p>%s</p>" % inline(" ".join(buf)))
+            para = " ".join(buf)
+            # **段落ぜんたいを `*…*` で囲む記法（各章末の注記）を斜体にする。**
+            # 2026-09-16 まで、この8件はアスタリスクをそのまま本文に出していた。
+            # EPUB でも、この日に組んだ web 版でも、読者には `*本章の数値…*` と見える。
+            # **行内記法として一般に `*em*` を通さない**のは、原稿のコード例に `*)` のような
+            # 単独のアスタリスクが実在するからである（`04-押せることを先に測る.md:119`）。
+            # 段落の両端という位置に限れば、その取り違えは起きない。
+            if len(para) > 2 and para.startswith("*") and para.endswith("*") \
+                    and not para.startswith("**") and not para.endswith("**"):
+                out.append("<p><em>%s</em></p>" % inline(para[1:-1]))
+            else:
+                out.append("<p>%s</p>" % inline(para))
     return "\n".join(out), heads
 
 

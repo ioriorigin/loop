@@ -97,6 +97,18 @@ def expected_text(md):
     for txt, is_code in segs:
         if not is_code:
             txt = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1", txt)  # リンクは表示文字だけ
+            # 段落ぜんたいを囲む `*…*`（各章末の注記）も記法である。
+            # 2026-09-16 に本文側で <em> へ変換したので、ここで落とさないと
+            # **記法を1つ正しく解釈したことが「本文が2字落ちた」と報告される。**
+            #
+            # **位置で見る。** 素朴に `*` を全部落とすと、行内コードの
+            # `` `git push:*` ``（`06-自分を縛る規則.md:85`）まで消えて、
+            # 今度は逆向きの不一致が出る。**同じ日に、その形で1件出した。**
+            # 判定を `**` の除去より前に置くのは、後に置くと `**` の残骸と区別できなくなるからである。
+            if txt.startswith("*") and not txt.startswith("**"):
+                txt = txt[1:]
+            if txt.endswith("*") and not txt.endswith("**"):
+                txt = txt[:-1]
             txt = txt.replace("**", "").replace("`", "")            # 強調・行内コードの記号
         out.append(txt)
     return "\n".join(out)
