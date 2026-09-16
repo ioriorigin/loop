@@ -1,0 +1,76 @@
+@charset "utf-8";
+:root{
+  --bg:#fbfaf8; --fg:#1b1917; --dim:#6b645c; --line:#e2ddd5;
+  --acc:#8a5a2b; --code-bg:#f2efe9; --quote:#f6f3ee;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#16151a; --fg:#e8e4de; --dim:#9a938a; --line:#302d35;
+    --acc:#d9a36a; --code-bg:#1f1e25; --quote:#1c1b22;
+  }
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--bg); color:var(--fg);
+  font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Noto Sans JP",
+    "Yu Gothic",Meiryo,sans-serif;
+  line-height:1.95; font-size:17px; letter-spacing:.01em;
+}
+.wrap{max-width:40rem; margin:0 auto; padding:0 16px 6rem}
+nav.top,nav.bottom{
+  max-width:40rem; margin:0 auto; padding:1.1rem 16px;
+  display:flex; gap:.9rem; flex-wrap:wrap; align-items:baseline;
+  font-size:.86rem; color:var(--dim)
+}
+nav.top{border-bottom:1px solid var(--line); margin-bottom:2.4rem}
+nav.bottom{border-top:1px solid var(--line); margin-top:3.5rem}
+nav a{color:var(--acc)}
+nav .sp{flex:1 1 auto}
+a{color:var(--acc); text-underline-offset:.18em}
+h1{font-size:1.62rem; line-height:1.55; margin:.2rem 0 1.6rem; letter-spacing:0}
+h2{font-size:1.16rem; line-height:1.7; margin:3rem 0 1rem;
+   padding-top:1.2rem; border-top:1px solid var(--line)}
+h3{font-size:1rem; margin:2.1rem 0 .7rem; color:var(--acc)}
+p{margin:1.15rem 0}
+strong{font-weight:700}
+code{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Noto Sans Mono",monospace;
+  font-size:.88em; background:var(--code-bg); padding:.12em .35em; border-radius:3px;
+  word-break:break-all
+}
+pre{
+  background:var(--code-bg); border:1px solid var(--line); border-radius:6px;
+  padding:.9rem 1rem; overflow-x:auto; line-height:1.65; font-size:.84rem
+}
+pre code{background:none; padding:0; word-break:normal}
+blockquote{
+  margin:1.5rem 0; padding:.2rem 1.1rem; border-left:3px solid var(--acc);
+  background:var(--quote); color:var(--fg)
+}
+blockquote p{margin:.8rem 0}
+table{border-collapse:collapse; width:100%; margin:1.6rem 0; font-size:.9rem; display:block;
+      overflow-x:auto}
+th,td{border:1px solid var(--line); padding:.5rem .6rem; text-align:left; vertical-align:top}
+th{background:var(--code-bg); font-weight:700; white-space:nowrap}
+hr{border:0; border-top:1px solid var(--line); margin:2.6rem 0}
+/* 各章末の注記（原稿では段落ぜんたいを `*…*` で囲んでいる）。
+   日本語の斜体は環境によって崩れるので、傾けずに色と大きさで落とす。 */
+em{font-style:normal; color:var(--dim); font-size:.92em}
+ul,ol{margin:1.15rem 0; padding-left:1.5rem}
+li{margin:.45rem 0}
+ol.toc{list-style:none; padding:0; margin:2rem 0}
+ol.toc>li{margin:0 0 1.5rem}
+ol.toc a{font-size:1.04rem; font-weight:700; text-decoration:none}
+ol.toc a:hover{text-decoration:underline}
+ol.toc .subs{margin:.4rem 0 0; font-size:.84rem; color:var(--dim); line-height:1.8}
+.meta{color:var(--dim); font-size:.86rem; line-height:1.8}
+.card{border:1px solid var(--line); border-radius:8px; padding:1rem 1.15rem; margin:2rem 0;
+      background:var(--quote)}
+.card p{margin:.6rem 0; font-size:.92rem}
+.card p:first-child{margin-top:0}
+.card p:last-child{margin-bottom:0}
+footer{
+  max-width:40rem; margin:0 auto; padding:2rem 16px 4rem;
+  border-top:1px solid var(--line); color:var(--dim); font-size:.82rem; line-height:1.85
+}
