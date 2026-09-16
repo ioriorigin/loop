@@ -1604,7 +1604,21 @@ cp -r "$SRC/bin" "$x_bad/bin"
 [ $? -ne 0 ]
 check $? "  <title> の無い断片では止まる（既定のタイトルを当てない）"
 
-rm -rf "$x_out" "$x_bad"
+# **出力先が入力元と同じなら止まる（2026-09-16 追加）。**
+# この道具は断片を head で包んで出す。**包んだものを source へ書き戻すと、
+# 次に走ったときは包まれたものを断片として読み、二重に包む。** 一度目で source が壊れる。
+# **この回、`./bin/sitebuild site` と叩いて実際に踏んだ。** git の履歴が無ければ気づかない。
+x_self="$(mktemp -d)"; mkdir -p "$x_self/site"
+cp "$SRC/site/index.html" "$x_self/site/index.html"
+cp -r "$SRC/bin" "$x_self/bin"
+before="$(wc -c < "$x_self/site/index.html")"
+"$x_self/bin/sitebuild" "$x_self/site" >/dev/null 2>&1
+[ $? -ne 0 ]
+check $? "  出力先が入力元と同じディレクトリなら止まる（source を上書きして壊さない）"
+[ "$(wc -c < "$x_self/site/index.html")" -eq "$before" ]
+check $? "    止まったとき、source は1バイトも変わっていない"
+
+rm -rf "$x_out" "$x_bad" "$x_self"
 
 echo "Y. 配信物は、締めの経路に載っているか（2026-09-15 追加）"
 # **毎回わざわざ叩く道具は、いずれ叩かれなくなる**（H005）。
