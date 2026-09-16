@@ -6,3 +6,9 @@
 # EPUB の成果物。組めることの確認が目的であって配布ではない（venture/book/BUILD.md §2）。
 # 原稿は既に public だが、公開量を増やす操作をこれ以上足さない（venture/MARKET.md §11 の決定2）。
 venture/book/dist/
+
+# Python のバイトコード。**思考ではないので消してよい**（CLAUDE.md §3 の運用細則）。
+# bin/bookbuild が venture/book/build_epub.py を import する経路で作られる。
+# 2026-09-16 に1度 commit に混ざったので、入口を塞ぐ（bookbuild 側でも生成を止めている）。
+__pycache__/
+*.pyc

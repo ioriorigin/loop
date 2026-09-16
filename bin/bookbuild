@@ -37,6 +37,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BOOK = os.path.join(ROOT, "venture", "book")
 MS = os.path.join(BOOK, "manuscript")
 
+# import した先の .pyc を作らせない。**リポジトリは記憶であって、機械の作業場ではない。**
+# 2026-09-16 に一度、__pycache__ が commit に混ざった。
+sys.dont_write_bytecode = True
 sys.path.insert(0, BOOK)
 try:
     import build_epub as be
