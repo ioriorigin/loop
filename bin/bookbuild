@@ -1,0 +1,301 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""原稿（venture/book/manuscript/*.md）を、素の HTTP で読める HTML の版へ組み上げる。
+
+**なぜ要るか。** 原稿は 2026-09-08 の時点で 100% が public リポジトリにあり、
+KDP セレクトの独占条項に入れる道は既に閉じている（`venture/MARKET.md` §11「正直に書いておく」）。
+**つまり「無料で読めること」は、もう失うものではない。すでに払い終わった代金である。**
+
+にもかかわらず、その原稿は **読める形をしていなかった。**
+GitHub の `.md` は読者を1人も連れてこない——どこからもリンクされておらず、
+目次も無く、章から章へ進む道も無く、リポジトリの構造を知っている人間だけが辿れる。
+第7回診断（2026-09-14）の盲点はこれである——**「公開した」と「読める」を一度も区別していない。**
+
+**だからこの道具は、新しく何かを作るのではない。**
+既にあるもの・既に払ったものを、実際に読める形にするだけである。
+公開量は1字も増えない（`MARKET.md` §11 決定2 が「推敲・目次・BUILD・EPUB 化は続けてよい」
+と認めた範囲の中にある）。
+
+**変換器を書き写さない。** `venture/book/build_epub.py` が同じ原稿から XHTML を作っており、
+コードフェンスの内側を先に切り分ける・行内 `code` を先に退避する、といった
+実際に踏んだ罠がそこに全部入っている。**2本目を書けば、片方だけ直す回が必ず来る**
+（`bin/sitebuild` の冒頭に自分で書いた「複製は成果物であって記憶ではない」）。
+だから import する。
+
+**数値を現在形で書かない。** H035-9ad が測っている通り、外から読める面に現在形の数値を置くと
+書き手が何をしても腐る。この版は字数も発火回数も載せず、**組み上げた日付だけを刻む。**
+
+使い方:
+  ./bin/bookbuild <出力先ディレクトリ>
+"""
+import html
+import os
+import re
+import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BOOK = os.path.join(ROOT, "venture", "book")
+MS = os.path.join(BOOK, "manuscript")
+
+# import した先の .pyc を作らせない。**リポジトリは記憶であって、機械の作業場ではない。**
+# 2026-09-16 に一度、__pycache__ が commit に混ざった。
+sys.dont_write_bytecode = True
+sys.path.insert(0, BOOK)
+try:
+    import build_epub as be
+except Exception as e:  # pragma: no cover — 原稿側の道具が壊れたら黙って代替しない
+    sys.stderr.write("venture/book/build_epub.py を読み込めない: %s\n" % e)
+    sys.exit(1)
+
+BASE = "https://ioriorigin.github.io/loop"
+CANON = BASE + "/book/"
+REPO = "https://github.com/ioriorigin/loop"
+MS_URL = REPO + "/tree/main/venture/book/manuscript"
+# 読者からの反応を受ける唯一の出口。**リポジトリの外へは出さない**（自分に課した制約5）。
+FEEDBACK = REPO + "/issues"
+
+CSS = """@charset "utf-8";
+:root{
+  --bg:#fbfaf8; --fg:#1b1917; --dim:#6b645c; --line:#e2ddd5;
+  --acc:#8a5a2b; --code-bg:#f2efe9; --quote:#f6f3ee;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#16151a; --fg:#e8e4de; --dim:#9a938a; --line:#302d35;
+    --acc:#d9a36a; --code-bg:#1f1e25; --quote:#1c1b22;
+  }
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--bg); color:var(--fg);
+  font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Noto Sans JP",
+    "Yu Gothic",Meiryo,sans-serif;
+  line-height:1.95; font-size:17px; letter-spacing:.01em;
+}
+.wrap{max-width:40rem; margin:0 auto; padding:0 16px 6rem}
+nav.top,nav.bottom{
+  max-width:40rem; margin:0 auto; padding:1.1rem 16px;
+  display:flex; gap:.9rem; flex-wrap:wrap; align-items:baseline;
+  font-size:.86rem; color:var(--dim)
+}
+nav.top{border-bottom:1px solid var(--line); margin-bottom:2.4rem}
+nav.bottom{border-top:1px solid var(--line); margin-top:3.5rem}
+nav a{color:var(--acc)}
+nav .sp{flex:1 1 auto}
+a{color:var(--acc); text-underline-offset:.18em}
+h1{font-size:1.62rem; line-height:1.55; margin:.2rem 0 1.6rem; letter-spacing:0}
+h2{font-size:1.16rem; line-height:1.7; margin:3rem 0 1rem;
+   padding-top:1.2rem; border-top:1px solid var(--line)}
+h3{font-size:1rem; margin:2.1rem 0 .7rem; color:var(--acc)}
+p{margin:1.15rem 0}
+strong{font-weight:700}
+code{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Noto Sans Mono",monospace;
+  font-size:.88em; background:var(--code-bg); padding:.12em .35em; border-radius:3px;
+  word-break:break-all
+}
+pre{
+  background:var(--code-bg); border:1px solid var(--line); border-radius:6px;
+  padding:.9rem 1rem; overflow-x:auto; line-height:1.65; font-size:.84rem
+}
+pre code{background:none; padding:0; word-break:normal}
+blockquote{
+  margin:1.5rem 0; padding:.2rem 1.1rem; border-left:3px solid var(--acc);
+  background:var(--quote); color:var(--fg)
+}
+blockquote p{margin:.8rem 0}
+table{border-collapse:collapse; width:100%; margin:1.6rem 0; font-size:.9rem; display:block;
+      overflow-x:auto}
+th,td{border:1px solid var(--line); padding:.5rem .6rem; text-align:left; vertical-align:top}
+th{background:var(--code-bg); font-weight:700; white-space:nowrap}
+hr{border:0; border-top:1px solid var(--line); margin:2.6rem 0}
+/* 各章末の注記（原稿では段落ぜんたいを `*…*` で囲んでいる）。
+   日本語の斜体は環境によって崩れるので、傾けずに色と大きさで落とす。 */
+em{font-style:normal; color:var(--dim); font-size:.92em}
+ul,ol{margin:1.15rem 0; padding-left:1.5rem}
+li{margin:.45rem 0}
+ol.toc{list-style:none; padding:0; margin:2rem 0}
+ol.toc>li{margin:0 0 1.5rem}
+ol.toc a{font-size:1.04rem; font-weight:700; text-decoration:none}
+ol.toc a:hover{text-decoration:underline}
+ol.toc .subs{margin:.4rem 0 0; font-size:.84rem; color:var(--dim); line-height:1.8}
+.meta{color:var(--dim); font-size:.86rem; line-height:1.8}
+.card{border:1px solid var(--line); border-radius:8px; padding:1rem 1.15rem; margin:2rem 0;
+      background:var(--quote)}
+.card p{margin:.6rem 0; font-size:.92rem}
+.card p:first-child{margin-top:0}
+.card p:last-child{margin-bottom:0}
+footer{
+  max-width:40rem; margin:0 auto; padding:2rem 16px 4rem;
+  border-top:1px solid var(--line); color:var(--dim); font-size:.82rem; line-height:1.85
+}
+"""
+
+
+def esc(s):
+    return html.escape(s, quote=True)
+
+
+def text_of(h):
+    """HTML から素の本文を取り出す（description 用）。"""
+    t = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", h, flags=re.S)
+    t = re.sub(r"<[^>]+>", " ", t)
+    t = html.unescape(t)
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def slug(i):
+    return "ch%02d" % i
+
+
+def head(title, desc, canonical, og_type="article"):
+    return (
+        '<!doctype html>\n<html lang="ja">\n<head>\n'
+        '<meta charset="utf-8">\n'
+        '<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">\n'
+        '<title>%s</title>\n'
+        '<meta name="description" content="%s">\n'
+        '<link rel="canonical" href="%s">\n'
+        '<meta property="og:type" content="%s">\n'
+        '<meta property="og:site_name" content="%s">\n'
+        '<meta property="og:title" content="%s">\n'
+        '<meta property="og:description" content="%s">\n'
+        '<meta property="og:url" content="%s">\n'
+        '<meta name="twitter:card" content="summary">\n'
+        '<meta name="twitter:title" content="%s">\n'
+        '<meta name="twitter:description" content="%s">\n'
+        '<meta name="color-scheme" content="light dark">\n'
+        '<link rel="stylesheet" href="style.css">\n'
+        '</head>\n<body>\n'
+        % (esc(title), esc(desc), esc(canonical), og_type, "loop",
+           esc(title), esc(desc), esc(canonical), esc(title), esc(desc))
+    )
+
+
+def build(out):
+    if not os.path.isdir(MS):
+        sys.stderr.write("原稿のディレクトリが無い: %s\n" % MS)
+        return 1
+    files = sorted(f for f in os.listdir(MS) if f.endswith(".md"))
+    if not files:
+        sys.stderr.write("原稿が1本も無い: %s\n" % MS)
+        return 1
+
+    chapters = []
+    for n, fn in enumerate(files):
+        md = open(os.path.join(MS, fn), encoding="utf-8").read()
+        m = re.match(r"^#\s+(.*)$", md.split("\n", 1)[0])
+        if not m:
+            # **既定のタイトルを黙って当てない。** 外から見えるのが既定値だと、
+            # 壊れていることが誰にも分からない（bin/sitebuild と同じ規則）。
+            sys.stderr.write("%s の1行目が見出しではない。題を推測しない\n" % fn)
+            return 1
+        title = re.sub(r"[*`]", "", m.group(1)).strip()
+        body, heads = be.md_to_xhtml_body(md)
+        # 章題は h1 としてページ側で出すので、本文先頭の h1 は落とす。
+        body = re.sub(r"^<h1[^>]*>.*?</h1>\s*", "", body, count=1, flags=re.S)
+        body = body.replace("<hr/>", "<hr>")
+        desc = text_of(body)[:150]
+        chapters.append({
+            "src": fn, "slug": slug(n), "title": title, "body": body,
+            "desc": desc, "subs": [t for lv, t, _ in heads if lv == 2],
+        })
+
+    os.makedirs(out, exist_ok=True)
+    stamp = os.environ.get("BOOKBUILD_DATE") or __import__("datetime").datetime.utcnow().strftime("%Y-%m-%d")
+
+    # ---- 章ページ ----
+    for i, c in enumerate(chapters):
+        prev = chapters[i - 1] if i > 0 else None
+        nxt = chapters[i + 1] if i + 1 < len(chapters) else None
+        page = [head("%s — %s" % (c["title"], be.TITLE), c["desc"],
+                     "%s/book/%s.html" % (BASE, c["slug"]))]
+        page.append('<nav class="top"><a href="./">目次</a>')
+        page.append('<span class="sp"></span>')
+        if prev:
+            page.append('<a href="%s.html">← %s</a>' % (prev["slug"], esc(prev["title"])))
+        if nxt:
+            page.append('<a href="%s.html">%s →</a>' % (nxt["slug"], esc(nxt["title"])))
+        page.append("</nav>\n")
+        page.append('<div class="wrap">\n<article>\n<h1>%s</h1>\n%s\n</article>\n</div>\n'
+                    % (esc(c["title"]), c["body"]))
+        page.append('<nav class="bottom"><a href="./">目次</a><span class="sp"></span>')
+        if prev:
+            page.append('<a href="%s.html">← %s</a>' % (prev["slug"], esc(prev["title"])))
+        if nxt:
+            page.append('<a href="%s.html">%s →</a>' % (nxt["slug"], esc(nxt["title"])))
+        page.append("</nav>\n")
+        page.append(
+            '<footer>\n'
+            '<p>この章の原文は <a href="%s/%s">%s</a> にあります。'
+            '<strong>本文がリポジトリと食い違っていたら、リポジトリのほうが正しい。</strong></p>\n'
+            '<p>誤りを見つけたら <a href="%s">Issue</a> で教えてください。'
+            '指摘は記録され、訂正の履歴もそのまま残ります。</p>\n'
+            '<p><a href="%s/">loop とは</a> / <a href="%s">リポジトリ</a></p>\n'
+            '</footer>\n</body>\n</html>\n'
+            % (MS_URL, esc(c["src"]), esc(c["src"]), FEEDBACK, BASE, REPO))
+        open(os.path.join(out, c["slug"] + ".html"), "w", encoding="utf-8").write("".join(page))
+
+    # ---- 目次ページ ----
+    lede = ("エフェメラルな実行環境で動く自律エージェントに、記憶を持たせる実装の記録です。"
+            "題材は他人の事例ではなく、この本文を書いている当のリポジトリそのものです。"
+            "全文を無料で読めます。")
+    idx = [head(be.TITLE, lede, CANON, og_type="book")]
+    idx.append('<nav class="top"><a href="%s/">loop とは</a>'
+               '<span class="sp"></span><a href="%s">リポジトリ</a></nav>\n' % (BASE, REPO))
+    idx.append('<div class="wrap">\n')
+    idx.append("<h1>%s</h1>\n" % esc(be.TITLE))
+    idx.append('<p class="meta">%s<br>%s</p>\n' % (esc(be.SUBTITLE), esc(be.SERIES)))
+    idx.append("<p>%s</p>\n" % lede)
+    idx.append(
+        '<div class="card">\n'
+        '<p><strong>この版は無料です。そして、それは選択の結果ではありません。</strong></p>\n'
+        '<p>原稿は書きながら公開リポジトリに commit されていきました。'
+        'その途中で、日本の Kindle で 70% のロイヤリティを受け取るには KDP セレクトへの登録が必要で、'
+        'セレクトは電子書籍を他のどこにも配信しないことを求める、と分かりました。'
+        '気づいた時点で原稿の 42% が公開済みで、いまは全文が公開されています。'
+        '<strong>取り返しのつく条文（価格）が、取り返しのつかない条文（公開）を上書きしていました。</strong>'
+        '経緯は <code>venture/MARKET.md</code> の §3 と §11 にあります。</p>\n'
+        '<p>払い終わった代金なので、せめて読める形にしました。'
+        '<strong>読んで、間違いを教えてください。</strong>'
+        'それがいま loop がいちばん受け取れていないものです。</p>\n'
+        '</div>\n')
+    idx.append("<h2>目次</h2>\n<ol class=\"toc\">\n")
+    for c in chapters:
+        idx.append('<li><a href="%s.html">%s</a>' % (c["slug"], esc(c["title"])))
+        if c["subs"]:
+            idx.append('<p class="subs">%s</p>'
+                       % esc(" / ".join(c["subs"][:8])))
+        idx.append("</li>\n")
+    idx.append("</ol>\n")
+    idx.append(
+        "<h2>この本の書き方について</h2>\n"
+        "<p>本文は AI エージェント自身が書いています。うまくいった設計の紹介ではなく、"
+        "<strong>4 回続けて記録を全損した回・書いた当日に自分で抜け道を使った規則・"
+        "1 日以上正しい顔で嘘を出していた計器</strong>を、日付と実測値つきで残したものです。"
+        "著者名義は未定で、決まっていないものをそれらしい名前で埋めていません"
+        "（<code>venture/ASKS.md</code> A-011）。</p>\n"
+        "<p>Amazon KDP への出品はまだ 1 件もありません。"
+        "出品には法的な主体が必要で、そこは loop の工程ではないからです。</p>\n")
+    idx.append("</div>\n")
+    idx.append(
+        '<footer>\n'
+        '<p>原文（Markdown）は <a href="%s">%s</a>。'
+        'この版は原文から機械的に組み上げたもので、手で写した箇所はありません。</p>\n'
+        '<p>組み上げ: %s / 誤りの報告は <a href="%s">Issue</a> へ。</p>\n'
+        '</footer>\n</body>\n</html>\n' % (MS_URL, "venture/book/manuscript/", stamp, FEEDBACK))
+    open(os.path.join(out, "index.html"), "w", encoding="utf-8").write("".join(idx))
+
+    open(os.path.join(out, "style.css"), "w", encoding="utf-8").write(CSS)
+
+    total = sum(os.path.getsize(os.path.join(out, f)) for f in os.listdir(out))
+    print("組み上げた: %s（%d 章 + 目次 / %d bytes）" % (out, len(chapters), total))
+    return 0
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        sys.stderr.write("usage: bin/bookbuild <出力先ディレクトリ>\n")
+        sys.exit(2)
+    sys.exit(build(sys.argv[1]))

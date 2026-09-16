@@ -1570,6 +1570,124 @@ check $? "  preflight が、その URL を実際に叩いている（警告文�
 awk '/^[^#]*live_code=/,/^  fi$/' "$SRC/bin/preflight" | grep -qE '^[^#]*warn '
 check $? "  配信が落ちている指摘は warn に落とす（bad にしない）"
 
+echo "Z. 原稿の web 版（bin/bookbuild）— 置いてあることと、読めることは別である（2026-09-16 追加）"
+# **なぜ要るか。** 原稿は 09-08 の時点で 100% が public にあり、KDP セレクトへ入る道は既に閉じている。
+# **つまり無料で読めることは、もう失うものではない。** それでも 8 日間、原稿は
+# 「リポジトリの .md を自力で辿れる人だけが読める」形のままだった。
+# 第7回診断の盲点（2026-09-14）——**「公開した」と「読める」を一度も区別していない**——の、
+# 商品そのものについての版である。
+z_out="$(mktemp -d)"
+"$SRC/bin/bookbuild" "$z_out" >/dev/null 2>&1
+check $? "  原稿から web 版を組める"
+
+z_n=$(ls "$SRC/venture/book/manuscript"/*.md 2>/dev/null | wc -l)
+z_pages=$(ls "$z_out"/ch*.html 2>/dev/null | wc -l)
+[ "$z_n" -gt 0 ] && [ "$z_pages" -eq "$z_n" ]
+check $? "  章の数が原稿と一致する（原稿 $z_n 本 / 頁 $z_pages 枚）"
+[ -f "$z_out/index.html" ] && [ -f "$z_out/style.css" ]
+check $? "  目次ページとスタイルシートがある"
+
+# **素の HTTP で読める形か。** doctype も charset も無い断片を配信すると、
+# 日本語はブラウザの推測に委ねられる（X 節と同じ理由）。
+z_bad=0
+for f in "$z_out"/ch*.html "$z_out/index.html"; do
+  head -1 "$f" | grep -qi '^<!doctype html>' || z_bad=1
+  grep -qi '<meta charset="utf-8">' "$f" || z_bad=1
+  grep -qi '<meta name="viewport"' "$f" || z_bad=1
+  grep -q '<link rel="canonical"' "$f" || z_bad=1
+done
+[ "$z_bad" -eq 0 ]
+check $? "  全頁が doctype / charset / viewport / canonical を持つ"
+
+# **リンクを貼られたときに何が出るか。** og: に既定値を当てず、実物の題を載せる。
+z_title="$(sed -n 's/^TITLE = "\(.*\)"$/\1/p' "$SRC/venture/book/build_epub.py")"
+[ -n "$z_title" ] && grep -q "og:title\" content=\"$z_title\"" "$z_out/index.html"
+check $? "  目次の og:title が確定した書名になっている"
+
+# **いちばん重い1件。** 本文が落ちていないこと。**ここが空でも上の検査は全部通る。**
+# 判定は `venture/book/check_epub.py` の正規化を借りる——**2本目を書けば、片方だけ直す回が来る。**
+z_lost=$(python3 - "$SRC" "$z_out" <<'PY'
+import glob, os, re, sys
+src, out = sys.argv[1], sys.argv[2]
+sys.path.insert(0, os.path.join(src, "venture", "book"))
+import check_epub as ce
+bad = []
+for i, f in enumerate(sorted(glob.glob(os.path.join(src, "venture/book/manuscript/*.md")))):
+    md = open(f, encoding="utf-8").read()
+    h = open(os.path.join(out, "ch%02d.html" % i), encoding="utf-8").read()
+    art = h.split("<article>", 1)[1].split("</article>", 1)[0] if "<article>" in h else ""
+    exp = ce.nows(ce.expected_text(md))
+    got = ce.nows(ce.text_of(art))
+    if exp != got:
+        bad.append("%s(%d!=%d)" % (os.path.basename(f), len(exp), len(got)))
+print(" ".join(bad))
+PY
+)
+[ -z "$z_lost" ]
+check $? "  全章で本文が1字も落ちていない（不一致: ${z_lost:-なし}）"
+
+# **記法が本文に漏れていないこと。** 2026-09-16 まで、各章末の注記は
+# `*本章の数値…*` とアスタリスクを付けたまま **EPUB でも表示されていた。**
+# 段落ぜんたいを囲む `*…*` を <em> として解釈するまで、8 章すべてで漏れていた。
+z_ast=$(python3 - "$z_out" <<'PY'
+import glob, re, sys
+n = 0
+for f in sorted(glob.glob(sys.argv[1] + "/ch*.html")):
+    h = open(f, encoding="utf-8").read()
+    art = h.split("<article>", 1)[1].split("</article>", 1)[0] if "<article>" in h else ""
+    art = re.sub(r"<pre><code>.*?</code></pre>", "", art, flags=re.S)
+    art = re.sub(r"<code>.*?</code>", "", art, flags=re.S)
+    n += art.count("*")
+print(n)
+PY
+)
+[ "${z_ast:-1}" -eq 0 ]
+check $? "  本文に素のアスタリスクが残っていない（実測 ${z_ast:-?} 件）"
+
+# 読む人が次の章へ行けること。**目次だけあって道が無い版は、読み通せない。**
+grep -q 'href="ch01.html"' "$z_out/ch00.html" && grep -q 'href="./"' "$z_out/ch00.html"
+check $? "  章から次の章と目次へ進める"
+grep -q 'href="ch00.html"' "$z_out/index.html"
+check $? "  目次から第1章へ行ける"
+
+# **既定値を黙って当てない**（X 節と同じ規則）。題の無い原稿で止まること。
+z_fake="$(mktemp -d)"; mkdir -p "$z_fake/venture/book/manuscript" "$z_fake/bin"
+cp "$SRC/venture/book/build_epub.py" "$z_fake/venture/book/"
+printf 'title なし\n\n本文。\n' > "$z_fake/venture/book/manuscript/00-x.md"
+cp "$SRC/bin/bookbuild" "$z_fake/bin/"
+"$z_fake/bin/bookbuild" "$z_fake/out" >/dev/null 2>&1
+[ $? -ne 0 ]
+check $? "  1行目が見出しでない原稿では止まる（題を推測しない）"
+
+rm -rf "$z_out" "$z_fake"
+
+echo "Z2. 外から読める面が、商品を指しているか（2026-09-16 追加）"
+# **2026-09-16 に実測した欠陥。** 確定した書名は `OUTLINE.md` §9.3 と `LISTING.md` の
+# 「消える器で、続く主体をつくる」だが、**README は別の名前で本を呼んでいた。**
+# 商品名の完全一致で検索して 0 件だと測り、その結果で仮説（H036-b08）を1本立てていたが、
+# **測っていた文字列そのものが書名ではなかった。**
+# **同じ商品が面ごとに違う名前で呼ばれていることを、どの計器も見ていなかった。**
+z2_title="$(sed -n 's/^TITLE = "\(.*\)"$/\1/p' "$SRC/venture/book/build_epub.py")"
+[ -n "$z2_title" ]
+check $? "  確定した書名を build_epub.py から1か所で読める"
+grep -qF "$z2_title" "$SRC/README.md"
+check $? "  README が確定した書名で本を呼んでいる"
+grep -qF "$z2_title" "$SRC/venture/book/LISTING.md"
+check $? "  商品説明が同じ書名を使っている"
+grep -qF "$z2_title" "$SRC/site/index.html"
+check $? "  紹介ページが同じ書名を出している"
+# **導線が無い名前は、名前だけである。** 索引される面から、読める版へ行けること。
+grep -qF 'ioriorigin.github.io/loop/book/' "$SRC/README.md"
+check $? "  README から web 版へ行ける（索引済みの面に導線がある）"
+grep -qF 'ioriorigin.github.io/loop/book/' "$SRC/site/index.html"
+check $? "  紹介ページから web 版へ行ける"
+# 配信の経路は1本に保つ。**別の手順で押す設計にすると、押し直しを忘れる回が来る。**
+grep -qE '^[^#]*bin/bookbuild" "\$TMP/out/book"' "$SRC/bin/sitepublish"
+check $? "  sitepublish が web 版も同じ経路で組む"
+# **1本の blob ではなく木を比べる。** index.html だけを見ると book/ の更新が「最新」になる。
+grep -qE 'FETCH_HEAD\^\{tree\}' "$SRC/bin/sitepublish"
+check $? "  gh-pages との比較が木ぜんたいになっている"
+
 echo
 echo "── 結果: 成功 $pass / 失敗 $fail"
 if [ "$fail" -gt 0 ]; then

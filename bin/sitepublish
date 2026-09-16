@@ -27,50 +27,61 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 "$ROOT/bin/sitebuild" "$TMP/out" >/dev/null
+# **原稿の web 版も同じ経路で配信する**（2026-09-16 追加）。
+# 別の道具・別の手順で押すと、押し直しを忘れる回が必ず来る。出口は1つにする。
+"$ROOT/bin/bookbuild" "$TMP/out/book" >/dev/null
 
-NEW_BLOB="$(git -C "$ROOT" hash-object "$TMP/out/index.html")"
+# 配信物は複数ファイルになった。**1本の blob ではなく、木ぜんたいを比べる。**
+# index.html だけを見ていると、`book/` を直した回が「最新」と報告される。
+build_tree() {
+  local dir="$1" idx="$2" f mode blob
+  rm -f "$idx"
+  while IFS= read -r f; do
+    f="${f#./}"
+    mode=100644
+    [ -x "$dir/$f" ] && mode=100755
+    blob="$(git -C "$ROOT" hash-object -w "$dir/$f")"
+    GIT_INDEX_FILE="$idx" git -C "$ROOT" update-index --add --cacheinfo "$mode,$blob,$f"
+  done < <(cd "$dir" && find . -type f | LC_ALL=C sort)
+  GIT_INDEX_FILE="$idx" git -C "$ROOT" write-tree
+}
 
-# いま gh-pages に載っている index.html。**origin を取り直してから読む**——
+NEW_TREE="$(build_tree "$TMP/out" "$TMP/index")"
+
+# いま gh-pages に載っている木。**origin を取り直してから読む**——
 # ローカルの追跡 ref はコンテナが clone した時点のままでありうる。
 # 取れなければ「不明」として押す側に倒す（黙って一致と読まない）。
-OLD_BLOB=""
+OLD_TREE=""
 if git -C "$ROOT" fetch -q origin "$PAGES_BRANCH" 2>/dev/null; then
-  OLD_BLOB="$(git -C "$ROOT" rev-parse "FETCH_HEAD:index.html" 2>/dev/null || true)"
+  OLD_TREE="$(git -C "$ROOT" rev-parse "FETCH_HEAD^{tree}" 2>/dev/null || true)"
 fi
 
-if [ -n "$OLD_BLOB" ] && [ "$OLD_BLOB" = "$NEW_BLOB" ]; then
+if [ -n "$OLD_TREE" ] && [ "$OLD_TREE" = "$NEW_TREE" ]; then
   echo "  ok — 配信物は最新（$PAGES_BRANCH は組み上げた中身と一致）"
   exit 0
 fi
 
 if [ "$CHECK_ONLY" = "1" ]; then
-  if [ -z "$OLD_BLOB" ]; then
+  if [ -z "$OLD_TREE" ]; then
     echo "  >> $PAGES_BRANCH の中身を読めなかった。一致とは言えない"
   else
-    echo "  >> $PAGES_BRANCH が古い。site/index.html を組み直したものと違う"
+    echo "  >> $PAGES_BRANCH が古い。組み直した配信物と違う"
   fi
   exit 1
 fi
 
-# `.nojekyll` は毎回同じ中身（空）だが、ツリーには必ず入れる。落とすと Jekyll に通る。
-export GIT_INDEX_FILE="$TMP/index"
-B1="$(git -C "$ROOT" hash-object -w "$TMP/out/index.html")"
-B2="$(git -C "$ROOT" hash-object -w "$TMP/out/.nojekyll")"
-git -C "$ROOT" update-index --add --cacheinfo "100644,$B1,index.html"
-git -C "$ROOT" update-index --add --cacheinfo "100644,$B2,.nojekyll"
-TREE="$(git -C "$ROOT" write-tree)"
+TREE="$NEW_TREE"
 
 # 親を繋ぐ。**孤立コミットを積み直さない**——配信物にも履歴を残す（記憶の不可侵原則）。
 PARENT=""
-[ -n "$OLD_BLOB" ] && PARENT="$(git -C "$ROOT" rev-parse FETCH_HEAD 2>/dev/null || true)"
+[ -n "$OLD_TREE" ] && PARENT="$(git -C "$ROOT" rev-parse FETCH_HEAD 2>/dev/null || true)"
 
-MSG="gh-pages: $(TZ=Asia/Tokyo date '+%Y-%m-%d %H:%M JST') の site/index.html を配信"
+MSG="gh-pages: $(TZ=Asia/Tokyo date '+%Y-%m-%d %H:%M JST') の site/ と原稿の web 版を配信"
 if [ -n "$PARENT" ]; then
   COMMIT="$(printf '%s\n' "$MSG" | git -C "$ROOT" commit-tree "$TREE" -p "$PARENT")"
 else
   COMMIT="$(printf '%s\n' "$MSG" | git -C "$ROOT" commit-tree "$TREE")"
 fi
-unset GIT_INDEX_FILE
 
 if git -C "$ROOT" push origin "$COMMIT:refs/heads/$PAGES_BRANCH" >/dev/null 2>&1; then
   echo "  ok — 配信物を押した: $PAGES_URL"
