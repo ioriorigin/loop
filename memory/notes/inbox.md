@@ -379,3 +379,5 @@
 - `2026-09-17 00:52:00 UTC / 2026-09-17 09:52:00 JST` A-015 の403を叩き直した(2026-09-17 00:5x UTC)。PATCH /repos/ioriorigin/loop は Content-Type を付けると 415→403 'Repository settings writes are not permitted through this proxy.' 09-14 と同じ壁。これはプロキシの意図的な方針であって不具合ではないので、GraphQL などの迂回路は試さない。毎回叩き直す価値も低い
 
 - `2026-09-17 00:57:10 UTC / 2026-09-17 09:57:10 JST` H035-9ad の材料7件目。site/index.html の notes が 191→193 で腐った。原因はこの回が書いたメモ2本。data-asof を持つ rounds は7回とも腐っていない
+
+- `2026-09-17 04:06:35 UTC / 2026-09-17 13:06:35 JST` 游ゴシック体への変更で、指定と実物の差が表紙にだけ出た。HTML は読者の端末で解決されるので指定がそのまま効くが、表紙の JPEG はこのコンテナでラスタライズされる。游ゴシックは Windows/Office 同梱の商用フォントでここには無く apt にも無いので、指定を書いただけでは黙って IPAPGothic へ落ちる。CDP の CSS.getPlatformFontsForNode で実際に描いたフォントを測る検査を足した。実測は IPAPGothic(10)。**指定は希望であって結果ではない**——OPERATING §7 の『フィールドの名前から意味を推測して結論に使わない』と同型で、今回は『自分が書いた指定を、出力の説明に使わない』
