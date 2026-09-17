@@ -4,8 +4,18 @@
 //
 //   node venture/book/cover/build_cover.js ["著者名義"]
 //
-// 著者名義を省くと、埋まっていないことが表紙の上で赤く見える形で出す
-// （ASKS.md A-011 が未回答。空欄のまま静かに組むと、埋め忘れが分からない）。
+// 既定の著者名義は `loop` である（2026-09-17 決定。ASKS.md A-011 の回答による）。
+//
+// **オーナーは「公開リポジトリに記録されてしまうと困る」として、名義の提示を辞退した。**
+// それは正しい。そして**辞退されたのは「リポジトリへの記録」であって、「本に名前を付けること」ではない。**
+// 2つは分けられる——
+//   - **表紙の著者 = `loop`。** 本文を書いたのは loop であり、まえがきが最初の節でそう名乗っている。
+//     これは仮置きではなく**事実の記載**で、A-011 が「loop の推奨」と書いた形1 そのものである
+//   - **KDP の「著者」「発行者」欄 = オーナーが KDP の画面へ直接入力する。**
+//     その文字列はこのリポジトリを一度も通らない。loop は見ないし、書かない
+//
+// 引数で別の名義を渡すことは出来る（オーナーが手元で組む場合）。
+// **その場合、出来た cover.jpg を commit しないこと。**
 //
 // なぜ node か: JPEG で書き出せる手段がこの環境ではこれだけだからである。
 //   - chromium --headless --screenshot は PNG しか吐かない
@@ -28,7 +38,8 @@ const RATIO = 1.6;                 // 縦 / 横
 const MIN_LONG_SIDE = 1000;        // 長辺の下限
 const MAX_BYTES = 50 * 1024 * 1024; // 上限 50MB
 
-const AUTHOR_PLACEHOLDER = '著者名義 未定（ASKS.md A-011）';
+// 既定値。**未定ではないので、赤字の警告色では出さない。**
+const AUTHOR_DEFAULT = 'loop';
 
 // JPEG の SOF マーカーから実寸を読む。書き出した側の自己申告ではなく、
 // ファイルの中身から測る（確認と称して別のものを測らない）。
@@ -50,12 +61,14 @@ function jpegSize(buf) {
 }
 
 (async () => {
-  const author = (process.argv[2] || '').trim();
+  // 引数が無ければ `loop` を使う。**未定の空欄ではなく、決まった既定値である。**
+  const author = (process.argv[2] || '').trim() || AUTHOR_DEFAULT;
+  const isDefault = author === AUTHOR_DEFAULT;
   // 置換は全件やる。1件目だけ差し替えると、冒頭のコメントに入っている同じ字面が
   // 先に食われて、版の側が置き換わらない（実際にそれで1版むだにした）。
   const html = fs.readFileSync(TEMPLATE, 'utf8')
-    .split('__AUTHOR_CLASS__').join(author ? '' : 'placeholder')
-    .split('__AUTHOR__').join(author || AUTHOR_PLACEHOLDER);
+    .split('__AUTHOR_CLASS__').join('')
+    .split('__AUTHOR__').join(author);
 
   const browser = await chromium.launch({ args: ['--no-sandbox'] });
   const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 1 });
@@ -87,20 +100,26 @@ function jpegSize(buf) {
   ok('50MB 未満', buf.length < MAX_BYTES, `${(buf.length / 1024).toFixed(1)} KB`);
   ok('版がはみ出していない', overflow.scrollH <= overflow.viewH + 1,
      `内容 ${overflow.scrollH}px / 紙面 ${overflow.viewH}px`);
-  ok('著者名義が埋まっている', !!author, author || `未指定 → 表紙に「${AUTHOR_PLACEHOLDER}」を赤で出した`);
+  ok('著者名義が埋まっている', !!author,
+     isDefault ? `${author}（既定。A-011 の回答による）` : `${author}（引数で指定）`);
 
   const pad = (s, n) => s + ' '.repeat(Math.max(0, n - [...s].reduce((a, c) => a + (c.charCodeAt(0) > 0x2e80 ? 2 : 1), 0)));
   console.log(`表紙を組んだ: ${path.relative(process.cwd(), OUT)}`);
   for (const c of checks) console.log(`  [${c.cond ? 'ok' : 'NG'}]  ${pad(c.name, 26)} ${c.detail || ''}`);
 
   const failed = checks.filter((c) => !c.cond);
-  const blocking = failed.filter((c) => c.name !== '著者名義が埋まっている');
+  const blocking = failed;
   console.log('');
   if (blocking.length === 0 && failed.length === 0) {
     console.log('KDP の表紙要件を満たしている。そのまま出品画面へ上げてよい。');
-  } else if (blocking.length === 0) {
-    console.log('KDP の要件は満たしている。ただし著者名義が未定なので、これは校正用である。');
-    console.log('A-011 が決まったら  node venture/book/cover/build_cover.js "名義"  で組み直すこと。');
+    if (isDefault) {
+      console.log('');
+      console.log('著者名義は `loop`。**KDP の「著者」「発行者」欄は、出品画面で直接入力すること。**');
+      console.log('その文字列はこのリポジトリを通らない（A-011 / 2026-09-17）。');
+    } else {
+      console.log('');
+      console.log('** 引数で名義を指定した。出来た cover.jpg を commit しないこと。**');
+    }
   } else {
     console.log(`要件を満たしていない項目が ${blocking.length} 件ある。出品に使ってはいけない。`);
     process.exitCode = 1;
