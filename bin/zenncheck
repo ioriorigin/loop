@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""`books/` が、いまの原稿から組み上がるものと一致しているかを突き合わせる。
+
+**なぜ要るか。** `books/` は原稿の複製である。複製は、原稿を直した回が直し忘れた瞬間に腐る。
+`bin/sitecheck` が公開ページの数値について塞いだのと同じ穴が、ここにも開く。
+**しかもこちらは外から読める商品そのものである。**
+
+**やり方は1つだけ。** いまの原稿から一時ディレクトリへ組み上げ直し、`books/` と1バイトずつ比べる。
+**「たぶん合っている」を作らない**——`bin/zennbuild` が唯一の生成器なので、
+それが出すものと違っていれば、違っているほうが間違いである。
+
+使い方:
+  ./bin/zenncheck            # 0 = 一致 / 1 = 食い違い
+"""
+import filecmp
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BUILD = os.path.join(ROOT, "bin", "zennbuild")
+
+
+def walk(root):
+    """root 以下の相対パスの集合。**ディレクトリ名ではなくファイルで比べる。**"""
+    out = set()
+    for dirpath, _, files in os.walk(root):
+        for f in files:
+            out.add(os.path.relpath(os.path.join(dirpath, f), root))
+    return out
+
+
+def main():
+    have_books = os.path.isdir(os.path.join(ROOT, "books"))
+    if not have_books:
+        sys.stderr.write("books/ が無い。./bin/zennbuild で組み上げること\n")
+        return 1
+
+    tmp = tempfile.mkdtemp(prefix="zenncheck.")
+    try:
+        r = subprocess.run([sys.executable, BUILD, tmp],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            sys.stderr.write("組み上げに失敗した:\n%s\n" % (r.stderr or r.stdout))
+            return 1
+
+        # 比べるのは books/ と articles/ だけ。**リポジトリの他の中身は対象外である。**
+        bad = []
+        for top in ("books", "articles"):
+            want = walk(os.path.join(tmp, top)) if os.path.isdir(os.path.join(tmp, top)) else set()
+            got = walk(os.path.join(ROOT, top)) if os.path.isdir(os.path.join(ROOT, top)) else set()
+            for rel in sorted(want - got):
+                bad.append("組み上げに在って %s/ に無い: %s" % (top, rel))
+            for rel in sorted(got - want):
+                bad.append("%s/ に在って組み上げに無い: %s" % (top, rel))
+            for rel in sorted(want & got):
+                a = os.path.join(tmp, top, rel)
+                b = os.path.join(ROOT, top, rel)
+                if not filecmp.cmp(a, b, shallow=False):
+                    bad.append("中身が違う: %s/%s" % (top, rel))
+
+        if bad:
+            for line in bad:
+                sys.stderr.write("  [NG] %s\n" % line)
+            sys.stderr.write(">> books/ が原稿と食い違っている。"
+                             "**外から読める商品である。** ./bin/zennbuild で組み直すこと\n")
+            return 1
+
+        n = len([f for f in walk(os.path.join(ROOT, "books")) if f.endswith(".md")])
+        sys.stdout.write("books/ は原稿と一致（章 %d 本）\n" % n)
+        return 0
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
