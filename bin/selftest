@@ -1911,11 +1911,28 @@ grep -q '^price: 0$' "$ab_dir/config.yaml"
 check $? "  price が 0（無料）である"
 [ "$(sed -n 's/^topics: \[\(.*\)\]$/\1/p' "$ab_dir/config.yaml" | tr ',' '\n' | wc -l)" -le 5 ]
 check $? "  topics が5つ以内である"
-# **既定は下書きである。** publish はオーナーの Zenn アカウントの下で起きる。
-# 規則に自分で足した条件3（取り消せない外向きの操作は1回に1つ）に従って、
-# リポジトリ連携と公開を同じ操作に束ねない。
-grep -q '^published: false$' "$ab_dir/config.yaml"
-check $? "  既定は下書き（連携と公開を束ねない）"
+# **publish はオーナーの Zenn アカウントの下で起きる。**
+#
+# 初版はここで `published: false` を固定していた。規則に自分で足した条件3
+# （取り消せない外向きの操作は1回に1つ）に従い、**リポジトリ連携と公開を束ねない**ためである。
+#
+# **2026-09-17、連携がオーナーの手で完了し、同じ言葉で公開も明示的に許可された。**
+# **束ねないという条件は、順に撃つことで満たされた。この検査の前提のほうが先に消えた。**
+#
+# **だから「常に false」を検査し続けるのは、もう何も測っていない**
+# ——`OPERATING.md` §13「同じ答えしか返さない道具は、何も測っていない」。
+# **緑にするために消すのではなく、いま生きている不変条件へ置き換える。**
+#
+# **置き換え後の不変条件: 公開の印が立つなら、承認の原文が生成器の中に在ること。**
+# 次の回が `PUBLISHED` を黙って倒せない。**倒すなら、誰がそう言ったかを一緒に置くことになる。**
+grep -qE '^published: (true|false)$' "$ab_dir/config.yaml"
+check $? "  published が true/false のいずれかである"
+if grep -q '^published: true$' "$ab_dir/config.yaml"; then
+  grep -q 'オーナーの明示の指示である。原文を残す' "$T/ab/bin/zennbuild"
+  check $? "  公開するなら、承認の原文が生成器に残っている"
+else
+  check 0 "  下書きなので、承認の記録は要らない"
+fi
 
 # 章 slug の重複は Zenn 側で片方が黙って消える。**生成側で止める。**
 grep -q '章の slug が重複している' "$T/ab/bin/zennbuild"
