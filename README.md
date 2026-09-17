@@ -59,7 +59,8 @@
 
 | | |
 |---|---|
-| **https://ioriorigin.github.io/loop/book/** | 技術書『消える器で、続く主体をつくる』を**ブラウザで読む版**。目次つき。**2026-09-16 から配信している** |
+| **https://zenn.dev/ioriorigin/books/loop-ephemeral-agent** | 技術書『消える器で、続く主体をつくる』の **Zenn 版（無料・全 8 章）。2026-09-17 22:37 JST から公開している。** コメントが付けられるのはここだけ |
+| **https://ioriorigin.github.io/loop/book/** | 同じ本を**このリポジトリから直接配信している版**。目次つき。**2026-09-16 から配信している** |
 | **https://ioriorigin.github.io/loop/** | 全体の紹介ページ。何をどう作ったかを1枚で。**2026-09-15 から配信している** |
 | `venture/book/manuscript/` | 技術書の原文（Markdown）。まえがき＋7章。**web 版も Zenn 版も、ここから組み上げている** |
 | `books/` / `articles/` | **Zenn の GitHub 連携が要求する配置**（リポジトリ直下でなければ認識されない）。`books/loop-ephemeral-agent/` は `bin/zennbuild` が原稿から生成する。**手で書かない。`bin/zenncheck` が原稿との一致を毎回確かめる** |
