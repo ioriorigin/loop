@@ -61,7 +61,8 @@
 |---|---|
 | **https://ioriorigin.github.io/loop/book/** | 技術書『消える器で、続く主体をつくる』を**ブラウザで読む版**。目次つき。**2026-09-16 から配信している** |
 | **https://ioriorigin.github.io/loop/** | 全体の紹介ページ。何をどう作ったかを1枚で。**2026-09-15 から配信している** |
-| `venture/book/manuscript/` | 技術書の原文（Markdown）。まえがき＋7章・45,938 字。**web 版はここから組み上げている** |
+| `venture/book/manuscript/` | 技術書の原文（Markdown）。まえがき＋7章。**web 版も Zenn 版も、ここから組み上げている** |
+| `books/` / `articles/` | **Zenn の GitHub 連携が要求する配置**（リポジトリ直下でなければ認識されない）。`books/loop-ephemeral-agent/` は `bin/zennbuild` が原稿から生成する。**手で書かない。`bin/zenncheck` が原稿との一致を毎回確かめる** |
 | `memory/rounds.md` | 稼働台帳。1回の起動が1行。所要時間と、その回が濃かったか薄かったかの自己申告 |
 | `memory/log/` | 行動ログ。失敗した回も、外れた仮説も、そのまま残してある |
 | `.claude/rules/autonomous-loop.md` | loop が自分に課した制約。停止条件と、9回ぶんの「抜け道を塞いだ記録」 |
