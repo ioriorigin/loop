@@ -1517,9 +1517,41 @@ check $? "  data-asof を data-metric の前に書いても検査される"
 
 # **解釈できない印に付いていたら、黙って無視せず落とす。**
 # 無視すると、印を付けた本人は「時点で検査された」と思い込む（知らない印と同じ扱い）
-mkpage "<span data-metric=\"notes\" data-asof=\"$v_iso_last\">$v_notes</span>"
+mkpage "<span data-metric=\"selftest\" data-asof=\"$v_iso_last\">1</span>"
 out=$("$SRC/bin/sitecheck" "$V/p.html" 2>&1); rc=$?
 [ "$rc" -eq 1 ]; check $? "  過去の値を測れない印の data-asof を素通りさせない"
+
+# ---- notes も時点に固定できる（2026-09-17 追加）------------------------
+# **`notes` は `rounds` より一段たちが悪い。** 腐りを記録する動作そのものが腐りを作る——
+# 「notes が腐った」というメモを書いた瞬間に実測が1増え、直したばかりの頁がまた嘘になる。
+# 09-16 と 09-17 の2回、実際にそれを踏んでいる。**現在形では原理的に真に出来ない。**
+v_n_first=$(grep -oE '^- `[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} UTC' "$SRC/memory/notes/inbox.md" | head -1 | cut -c4-22)
+v_n_last=$(grep -oE '^- `[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} UTC' "$SRC/memory/notes/inbox.md" | tail -1 | cut -c4-22)
+v_n_at_first=$(awk -v t="$v_n_first" '/^- `20/ && match($0,/^- `[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} UTC/){ if (substr($0,4,19) <= t) c++ } END{print c+0}' "$SRC/memory/notes/inbox.md")
+v_n_iso_first=$(printf '%sT%sZ' "${v_n_first%% *}" "${v_n_first##* }")
+v_n_iso_last=$(printf '%sT%sZ' "${v_n_last%% *}" "${v_n_last##* }")
+
+mkpage "<span data-metric=\"notes\" data-asof=\"$v_n_iso_last\">$v_notes</span>"
+"$SRC/bin/sitecheck" "$V/p.html" >/dev/null 2>&1
+check $? "  最新の時点に固定したメモ件数は通る"
+
+# **過去の時点は、その時点の値でなければ通らない。**
+# 1件目の刻印の時点では、同じ秒に打たれた行までしか数えない
+mkpage "<span data-metric=\"notes\" data-asof=\"$v_n_iso_first\">$v_n_at_first</span>"
+"$SRC/bin/sitecheck" "$V/p.html" >/dev/null 2>&1
+check $? "  過去の時点に固定したメモ件数も、その時点の実測と突き合わせる"
+
+mkpage "<span data-metric=\"notes\" data-asof=\"$v_n_iso_first\">$v_notes</span>"
+out=$("$SRC/bin/sitecheck" "$V/p.html" 2>&1); rc=$?
+[ "$rc" -eq 1 ]; check $? "  メモ件数も、時点と数値が食い違えば赤くする"
+grep -q "その時点の実測は $v_n_at_first" <<<"$out"; check $? "  メモ件数もその時点の正しい値を併記する"
+
+# **現在形の印と時点固定の印は、同じ母集団を数えること。**
+# `m_notes` は `^- \`20` で数える。時点固定だけ条件を変えると、両者は別の集合を数え、
+# **どちらが正しいかを外から判定できなくなる**（09-07 の `gaps` で踏んだのと同じ型）。
+v_n_now=$(grep -cE '^- `20' "$SRC/memory/notes/inbox.md")
+v_n_asof_now=$(awk '/^- `20/ && match($0,/^- `[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} UTC/){c++} END{print c+0}' "$SRC/memory/notes/inbox.md")
+[ "$v_n_now" = "$v_n_asof_now" ]; check $? "  現在形の数え方と時点固定の数え方が同じ母集団を見ている"
 
 mkpage '<span data-metric="rounds" data-asof="きのう">43</span>'
 "$SRC/bin/sitecheck" "$V/p.html" >/dev/null 2>&1
