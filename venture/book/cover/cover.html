@@ -14,7 +14,13 @@
   body {
     background: #0c1320;
     color: #e8edf5;
-    font-family: "IPAPGothic", "IPAGothic", sans-serif;
+    /* 游ゴシック体を第一希望にする（2026-09-17 指示）。
+       **ただし、この表紙をラスタライズするのはこのコンテナである。**
+       游ゴシックは Windows / Office 同梱の商用フォントで、ここには無く、apt にも無い。
+       つまり実際に出る JPEG は後段の IPAPGothic である可能性が高い。
+       **どれで出たかは build_cover.js が実測して報告する。指定を信じない。** */
+    font-family: "游ゴシック体", YuGothic, "游ゴシック Medium", "Yu Gothic Medium",
+                 "游ゴシック", "Yu Gothic", "IPAPGothic", "IPAGothic", sans-serif;
     position: relative;
     overflow: hidden;
   }

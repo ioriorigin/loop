@@ -1,7 +1,7 @@
 <title>記憶を継ぐループ</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Old+Mincho:wght@600;900&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=JetBrains+Mono:wght@400;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=JetBrains+Mono:wght@400;700&display=swap">
 
 <style>
 :root{
@@ -16,8 +16,11 @@
   --accent-soft:#DCE7E3;
   --loss:#9E3B26;
 
-  --f-display:"Zen Old Mincho",'Hiragino Mincho ProN','Yu Mincho',serif;
-  --f-body:"Zen Kaku Gothic New",'Hiragino Kaku Gothic ProN','Yu Gothic',system-ui,sans-serif;
+  /* 游ゴシック体を先頭に置く（2026-09-17）。Mac は PostScript 名 YuGothic、
+     Windows は Regular が細すぎるので Medium を先に拾わせる。
+     持っていない端末のために、従来の指定をそのまま後段に残す。 */
+  --f-display:"游ゴシック体",YuGothic,"游ゴシック Medium","Yu Gothic Medium","游ゴシック","Yu Gothic","Zen Kaku Gothic New",'Hiragino Kaku Gothic ProN',system-ui,sans-serif;
+  --f-body:"游ゴシック体",YuGothic,"游ゴシック Medium","Yu Gothic Medium","游ゴシック","Yu Gothic","Zen Kaku Gothic New",'Hiragino Kaku Gothic ProN',system-ui,sans-serif;
   --f-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
 
   --measure:34em;
@@ -86,7 +89,7 @@ a:focus-visible,.cta:focus-visible{outline:2px solid var(--accent);outline-offse
 }
 
 /* ---------- type ---------- */
-h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;font-weight:900;}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;font-weight:700;}
 h1{font-size:clamp(2.05rem,6.2vw,3.5rem);line-height:1.22;letter-spacing:.005em;}
 h2{font-size:clamp(1.4rem,3.4vw,1.95rem);line-height:1.38;margin-bottom:.85rem;}
 h3{font-size:1.02rem;font-weight:600;line-height:1.6;margin-bottom:.3rem;}
@@ -173,7 +176,7 @@ figcaption{
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr));gap:0;margin-top:.4rem;border-top:1px solid var(--rule-soft);}
 .stats div{padding:1rem .2rem 1.05rem;border-bottom:1px solid var(--rule-soft);}
 .stats dt{font-family:var(--f-mono);font-size:.68rem;letter-spacing:.09em;color:var(--ink-3);text-transform:uppercase;margin-bottom:.28rem;}
-.stats dd{margin:0;font-family:var(--f-display);font-weight:900;font-size:1.62rem;line-height:1.15;font-variant-numeric:tabular-nums;}
+.stats dd{margin:0;font-family:var(--f-display);font-weight:700;font-size:1.62rem;line-height:1.15;font-variant-numeric:tabular-nums;}
 .stats dd small{font-family:var(--f-body);font-weight:500;font-size:.72rem;color:var(--ink-2);display:block;margin-top:.3rem;line-height:1.5;}
 
 /* ---------- callout ---------- */

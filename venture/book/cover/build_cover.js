@@ -81,6 +81,30 @@ function jpegSize(buf) {
     return { scrollH: Math.max(d.scrollHeight, b.scrollHeight), viewH: h };
   }, H);
 
+  // **指定したフォントと、実際に描かれたフォントは別物である。**
+  // CSS の font-family は希望であって結果ではない。無いフォントは黙って後段へ落ちるので、
+  // 「游ゴシックにした」とソースに書いた版が IPAGothic で出ていても、絵は何も言わない。
+  // CDP の CSS.getPlatformFontsForNode は、**実際にグリフを出した実物の名前**を返す。
+  // （`memory/OPERATING.md` §7「フィールドの名前から意味を推測して結論に使わない」の同型。
+  //   ここでは「自分が書いた指定を、出力の説明に使わない」）
+  let renderedFonts = [];
+  try {
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('DOM.enable');
+    await cdp.send('CSS.enable');
+    const { root } = await cdp.send('DOM.getDocument');
+    const { nodeId } = await cdp.send('DOM.querySelector', { nodeId: root.nodeId, selector: '.title' });
+    if (nodeId) {
+      const { fonts } = await cdp.send('CSS.getPlatformFontsForNode', { nodeId });
+      renderedFonts = (fonts || [])
+        .filter((f) => f.glyphCount > 0)
+        .sort((a, b) => b.glyphCount - a.glyphCount)
+        .map((f) => `${f.familyName}(${f.glyphCount})`);
+    }
+  } catch (e) {
+    renderedFonts = [`測れなかった: ${e.message}`];
+  }
+
   await page.screenshot({ path: OUT, type: 'jpeg', quality: 92 });
   await browser.close();
 
@@ -100,6 +124,12 @@ function jpegSize(buf) {
   ok('50MB 未満', buf.length < MAX_BYTES, `${(buf.length / 1024).toFixed(1)} KB`);
   ok('版がはみ出していない', overflow.scrollH <= overflow.viewH + 1,
      `内容 ${overflow.scrollH}px / 紙面 ${overflow.viewH}px`);
+  // 第一希望が実際に出たか。**出ていないこと自体は欠陥ではない**（この環境に游ゴシックは無い）。
+  // 欠陥なのは、出ていないのに出たつもりで出荷することである。だから落とさず、事実だけ出す。
+  const wantedYu = renderedFonts.some((f) => /Yu ?Gothic|游ゴシック/i.test(f));
+  ok('第一希望のフォントで描かれた', wantedYu,
+     renderedFonts.length ? `実際に描いたのは ${renderedFonts.join(', ')}` : '測れなかった');
+
   ok('著者名義が埋まっている', !!author,
      isDefault ? `${author}（既定。A-011 の回答による）` : `${author}（引数で指定）`);
 
@@ -108,10 +138,23 @@ function jpegSize(buf) {
   for (const c of checks) console.log(`  [${c.cond ? 'ok' : 'NG'}]  ${pad(c.name, 26)} ${c.detail || ''}`);
 
   const failed = checks.filter((c) => !c.cond);
-  const blocking = failed;
+  // **フォントの不一致で出荷を止めない。** 止めれば、この環境では永久に出せなくなる
+  // （游ゴシックは商用フォントで、ここには無く、apt にも無い）。
+  // 「良性の状態を緊急事態と読み違えると1回分を潰す」（bin/preflight）と同じ型である。
+  const blocking = failed.filter((c) => c.name !== '第一希望のフォントで描かれた');
   console.log('');
-  if (blocking.length === 0 && failed.length === 0) {
+  // **`failed.length === 0` を条件に残すと、非ブロックの項目が1件でも落ちた瞬間に
+  //   「満たしていない項目が 0 件ある。出品に使ってはいけない」という矛盾した文が出る。
+  //   フォントの実測を足したこの版で、実際にそれを出した。** 見るのは blocking だけである。
+  if (blocking.length === 0) {
     console.log('KDP の表紙要件を満たしている。そのまま出品画面へ上げてよい。');
+    if (!wantedYu) {
+      console.log('');
+      console.log('** ただし第一希望のフォントでは描かれていない。**');
+      console.log(`   指定は 游ゴシック体 だが、実際に描いたのは ${renderedFonts.join(', ') || '不明'}。`);
+      console.log('   游ゴシックは Windows / Office 同梱の商用フォントで、この環境には無い。');
+      console.log('   **游ゴシックの表紙が要るなら、そのフォントがある端末で組むこと。**');
+    }
     if (isDefault) {
       console.log('');
       console.log('著者名義は `loop`。**KDP の「著者」「発行者」欄は、出品画面で直接入力すること。**');
