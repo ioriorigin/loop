@@ -31,6 +31,44 @@ trap 'rm -rf "$TMP"' EXIT
 # 別の道具・別の手順で押すと、押し直しを忘れる回が必ず来る。出口は1つにする。
 "$ROOT/bin/bookbuild" "$TMP/out/book" >/dev/null
 
+# ---- robots.txt と sitemap.xml -----------------------------------------
+# **なぜ要るか（2026-09-17）。** H036-b08 を refuted で閉じた日に測った——
+# 商品名の完全一致クエリは 0 件、Referring sites は自分の LP 1 本のみ、
+# **そして robots.txt も sitemap.xml も 404 だった。**
+# 仮説は「索引されている面が商品を指していない」だったが、実測は逆で、
+# **そもそも索引される前提が置かれていなかった。**
+#
+# **一覧を手で書かない。** 組み上げた木そのものから作る。
+# 手書きの一覧は、ページを1枚足した回が必ず更新を忘れる——
+# H035-9ad がずっと測っている腐りと同じ型である。
+#
+# **lastmod は入れない。** 組んだ日付を入れると木が毎回変わり、
+# 「変わっていなければ押さない」という sitepublish の冪等性が壊れる。
+# sitemap の仕様上 lastmod は任意である。**冪等性のほうが大事。**
+{
+  echo '<?xml version="1.0" encoding="UTF-8"?>'
+  echo '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+  while IFS= read -r f; do
+    f="${f#./}"
+    case "$f" in
+      index.html)   loc="$PAGES_URL" ;;
+      */index.html) loc="$PAGES_URL${f%index.html}" ;;
+      *)            loc="$PAGES_URL$f" ;;
+    esac
+    echo "  <url><loc>$loc</loc></url>"
+  done < <(cd "$TMP/out" && find . -type f -name '*.html' | LC_ALL=C sort)
+  echo '</urlset>'
+} > "$TMP/out/sitemap.xml"
+
+printf 'User-agent: *\nAllow: /\nSitemap: %ssitemap.xml\n' "$PAGES_URL" > "$TMP/out/robots.txt"
+
+# IndexNow の鍵ファイル。**このファイルが配信されていることが、送信の認証そのものである。**
+# 鍵は固定する。作り直すと過去の送信が無効になり、木も毎回変わって冪等性が壊れる。
+if [ -f "$ROOT/site/indexnow-key.txt" ]; then
+  key="$(tr -d '[:space:]' < "$ROOT/site/indexnow-key.txt")"
+  printf '%s' "$key" > "$TMP/out/$key.txt"
+fi
+
 # 配信物は複数ファイルになった。**1本の blob ではなく、木ぜんたいを比べる。**
 # index.html だけを見ていると、`book/` を直した回が「最新」と報告される。
 build_tree() {
