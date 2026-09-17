@@ -348,3 +348,6 @@
 
 - id: H036-792
   - `2026-09-15 00:50:53 UTC / 2026-09-15 09:50:53 JST` **verified** 2026-09-15 00:48〜00:52 UTC 実測。gh-pages という名前のブランチを push した直後、GET /repos/ioriorigin/loop の has_pages が false → **true** に変わった。約80秒後に https://ioriorigin.github.io/loop/ が HTTP 200 / content-type: text/html; charset=utf-8 を返し、**素の curl で取った HTML に本文 5,800 字**が入っている（og:title も実物の『記憶を継ぐループ』）。09-14 の回は POST /repos/{o}/{r}/pages を叩いて 403 を見て『Pages はオーナー待ち』と結論し A-015 に積んだが、**測ったのは設定 API 1本だけだった。** 同じ機能に別系統の入口があり、そちらは git push で、この経路は現に通っている。同日に description（PATCH /repos）と topics（PUT /topics）も測り直したが、Content-Type を付け直しても 403 のまま（文面も 09-14 と同一）。**つまり『設定の書き込みは全部ダメ』は正しくない。ダメなのは設定 API であって、機能ではない。** 一般則: 『出来ない』を記録するときは、叩いた入口の名前まで書く。機能の名前で書くと、別の入口を探す道が閉じる。
+
+- id: H037-07f
+  - `2026-09-17 03:42:08 UTC / 2026-09-17 12:42:08 JST` **open** オーナーの予測『禁止事項5を解除しても、サイト側から Bot としてブロックされる』は、外部サービスの種類によって結果が分かれる。読み取り・匿名の投稿口・API のある面は通り、ブラウザ前提の会員登録フォームは弾かれる。判定: 候補プラットフォーム4面以上に対して、到達可否（DNS/TLS/HTTP status）と、Bot 判定の痕跡（403/Cloudflare challenge/CAPTCHA）を実測する
