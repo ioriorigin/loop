@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# PreToolUse(Bash) の番人。**main への push と force push を、規則ではなく機構で止める。**
+#
+# なぜ要るか（2026-09-17）。
+# それまで `.claude/settings.json` の allow は、押してよいブランチ名を1本ずつ書き並べる形だった。
+# 2026-09-03 に作業ブランチが変わったとき、その写しだけが取り残され、
+# **この仕組みの単一障害点である `git push` が 14 日間 allow から外れていた。**
+# 名前を写し取る場所を増やすと、名前が変わった日に必ずどれかが腐る（`bin/_common.sh` の注意書きと同じ話）。
+#
+# だから allow からブランチ名を消し、**禁止の側をここで機械的に判定する。**
+# 文字列の deny パターンは `git push origin HEAD:main` のような書き方を素通りさせるが、
+# ここはコマンドを分解して宛先を見るので素通りしない。
+#
+# 契約:
+#   stdin  : PreToolUse のフック入力 JSON
+#   stdout : 止めるときだけ permissionDecision=deny の JSON。通すときは何も出さない
+#   exit   : 常に 0（フック自身の異常終了は「非ブロックのエラー」＝素通りになるので、
+#            判断は必ず JSON で表明する。**判定できないときは deny 側に倒す。**）
+set -uo pipefail
+
+PROTECTED_RE='^(main|master)$'
+
+deny() {
+  printf '%s' "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"$1\"}}"
+  exit 0
+}
+allow_through() { exit 0; }   # 何も出さない = この番人は意見を持たない（allow/ask は他の層が決める）
+
+input="$(cat)"
+cmd="$(printf '%s' "$input" | jq -r '.tool_input.command // empty' 2>/dev/null)"
+[ -z "$cmd" ] && allow_through
+
+# `git push` を含まないコマンドには興味が無い。ここで抜けるのが圧倒的多数の経路である。
+printf '%s' "$cmd" | grep -Eq '(^|[^A-Za-z0-9_-])git[[:space:]]+([^|;&]*[[:space:]])?push([[:space:]]|$)' || allow_through
+
+cur=""
+if cur_raw="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"; then cur="$cur_raw"; fi
+
+# `&&` `||` `;` `|` 改行で区切って、push の節だけを1つずつ見る。
+while IFS= read -r seg || [ -n "$seg" ]; do
+  # **節の先頭が git であることを要求する。** 引用符の中で `git push origin main` に言及するだけの
+  # コマンド（自分のログを grep する回が実在する）を、push そのものと読み違えないため。
+  # 先頭の VAR=値 の並びだけは読み飛ばす。
+  printf '%s' "$seg" | grep -Eq '^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*git[[:space:]]' || continue
+  printf '%s' "$seg" | grep -Eq '[[:space:]]push([[:space:]]|$)' || continue
+
+  # 1. force はブランチを問わず不可（規則の禁止事項6-3、および他人のブランチの歴史を壊さないため）
+  printf '%s' "$seg" | grep -Eq -- '(^|[[:space:]])(-f|--force|--force-with-lease(=[^[:space:]]*)?|--force-if-includes)([[:space:]]|$)' \
+    && deny 'force push は規則で禁止されている（.claude/rules/autonomous-loop.md 禁止事項6）。'
+
+  # 2. まとめて押す形は宛先が読めない。読めないものは通さない
+  printf '%s' "$seg" | grep -Eq -- '(^|[[:space:]])(--all|--mirror)([[:space:]]|$)' \
+    && deny '--all / --mirror は宛先が特定できないため通さない。押す先を明示せよ。'
+
+  # 3. 宛先の refspec を取り出す。`git push [opts] [remote] [refspec...]`
+  #    push より後ろの、ハイフンで始まらない語を並べ、先頭をリモート名として落とす。
+  args="$(printf '%s' "$seg" | sed -E 's/^.*[[:space:]]push([[:space:]]|$)/ /')"
+  refs=""; first=1
+  for w in $args; do
+    case "$w" in
+      -*) continue ;;
+    esac
+    if [ "$first" = 1 ]; then first=0; continue; fi   # リモート名
+    refs="$refs $w"
+  done
+
+  if [ -z "${refs// /}" ]; then
+    # refspec 省略 = いまの HEAD を押す。ここが `git push` 単独形の穴である
+    if [ -n "$cur" ] && printf '%s' "$cur" | grep -Eq "$PROTECTED_RE"; then
+      deny "いま $cur に居る。保護ブランチへの直接 push は禁止されている（禁止事項6）。作業ブランチへ移れ。"
+    fi
+    continue
+  fi
+
+  for r in $refs; do
+    dst="${r##*:}"            # src:dst の dst。`:` が無ければ全体が宛先
+    dst="${dst#+}"            # 先頭の + は強制更新
+    dst="${dst#refs/heads/}"
+    if printf '%s' "$dst" | grep -Eq "$PROTECTED_RE"; then
+      deny "保護ブランチ $dst への直接 push は禁止されている（禁止事項6。マージは PR 経由で行うこと）。"
+    fi
+  done
+done < <(printf '%s' "$cmd" | tr '\n' '\036' | sed -E 's/(\&\&|\|\||;|\||\036)/\n/g')
+
+allow_through

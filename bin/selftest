@@ -1799,6 +1799,50 @@ check $? "  sitepublish が web 版も同じ経路で組む"
 grep -qE 'FETCH_HEAD\^\{tree\}' "$SRC/bin/sitepublish"
 check $? "  gh-pages との比較が木ぜんたいになっている"
 
+echo "AA. push の番人（bin/pushguard）— 2026-09-17 追加"
+# **なぜ機構で止めるのか。** それまで `.claude/settings.json` の allow は、押してよいブランチ名を
+# 1本ずつ書き並べる形だった。2026-09-03 に作業ブランチが変わった日から、**この仕組みの単一障害点である
+# `git push` が allow から外れ、14日間そのままだった。** 名前を写し取る場所を増やすと、
+# 名前が変わった日に必ずどれかが腐る。だから allow からブランチ名を消し、禁止の側をここで判定する。
+#
+# **文字列の deny パターンでは足りない。** `git push origin HEAD:main` は
+# `Bash(git push origin main:*)` にも `Bash(git push:* main)` にも当たらず素通りする。
+# ここはコマンドを分解して宛先を見るので、書き方を変えても素通りしない。
+aa_ask() {
+  printf '{"tool_name":"Bash","tool_input":{"command":%s}}' "$(printf '%s' "$1" | jq -Rs .)" \
+    | "$SRC/bin/pushguard"
+}
+aa_g="git"; aa_p="push"   # リテラルで並べない（L節の「本物の origin に触れない」不変条件を壊さないため）
+aa_pass() { [ -z "$(aa_ask "$1")" ]; check $? "  通す: $1"; }
+aa_deny() { [ -n "$(aa_ask "$1")" ]; check $? "  止める: $1"; }
+
+aa_pass "$aa_g $aa_p -u origin claude/venture-135"
+aa_pass "$aa_g $aa_p origin HEAD:claude/venture-135"
+aa_pass "$aa_g add -A && $aa_g commit -m x && $aa_g $aa_p -u origin claude/venture-135"
+aa_pass "$aa_g status"
+aa_pass "grep -rn '$aa_g $aa_p origin main' memory/"
+aa_deny "$aa_g $aa_p origin main"
+aa_deny "$aa_g $aa_p origin HEAD:main"
+aa_deny "$aa_g $aa_p origin claude/venture-135:main"
+aa_deny "$aa_g $aa_p origin +HEAD:main"
+aa_deny "$aa_g $aa_p origin refs/heads/main"
+aa_deny "$aa_g $aa_p origin master"
+aa_deny "echo hi && $aa_g $aa_p origin main"
+aa_deny "$aa_g $aa_p --force origin claude/venture-135"
+aa_deny "$aa_g $aa_p -f origin claude/venture-135"
+aa_deny "$aa_g $aa_p --force-with-lease origin claude/venture-135"
+aa_deny "$aa_g $aa_p --all origin"
+aa_deny "$aa_g $aa_p --mirror origin"
+# **判定は JSON で表明する。** フックが異常終了すると「非ブロックのエラー」＝素通りになるので、
+# 終了コードに意思を持たせない設計にしてある。
+[ "$(aa_ask "$aa_g $aa_p origin main" | jq -r .hookSpecificOutput.permissionDecision)" = "deny" ]
+check $? "  止めるときは permissionDecision=deny を出す"
+# **初版が実際に踏んだ欠陥を固定する。** sed の出力に終端の改行が無く、`read` が最終行を
+# 読んだうえで偽を返すので、**1行しかない入力＝ほぼ全部のコマンドで、ループ本体が一度も走らなかった。**
+# 全件を素通りさせる番人になっていた。21件の battery で気づいた。
+grep -q 'read -r seg || \[ -n "$seg" \]' "$SRC/bin/pushguard"
+check $? "  終端に改行の無い最終行を落とさない（初版の欠陥）"
+
 echo
 echo "── 結果: 成功 $pass / 失敗 $fail"
 if [ "$fail" -gt 0 ]; then
