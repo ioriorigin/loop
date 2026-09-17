@@ -160,6 +160,21 @@ grep -q '薄い回が' &lt;&lt;&lt;"$(round gaps 12)" ; [ $? -ne 0 ]</code></pre
 <p><strong>5. 意味の無い警告を出し続けない。</strong> 閉じようがない過去を毎回警告する計器は、本物の信号が来たときも読まれない。</p>
 <p><strong>6. 計器そのものをテストで固定し、変異させて検出力を確かめる。</strong> 「常に警告を出す」実装で通るテストは、何も守っていない。<strong>必ず対で書く。</strong></p>
 <p><strong>7. 塞げていない穴は、塞げていないと書く。</strong> 第二の帳簿が拾った回は、まだ連続数に入っていない。 <strong>「見えるようになった」と「数えられるようになった」は別である。</strong> 記録された穴は、次の回が塞げる。記録されない穴は、次の回が同じ場所で転ぶ。</p>
+<p><strong>8. 独立に見える観測が、本当に独立かを、対照で確かめる。</strong> 計器の分解能を疑うのは、ふつう「その計器は嘘をつくか」を気にするときである。 <strong>だが分解能の不足は、嘘ではなく、証拠の水増しという形でも出る。</strong></p>
+<p>2026 年 9 月 18 日の回で、実際に踏みかけた。 外部サービス（Zenn）の一覧 API を叩き、自分の本がどの並びに載っているかを調べていた。 <code>order</code> というパラメータに <code>daily</code> / <code>weekly</code> / <code>monthly</code> を順に渡し、<strong>3 回とも「載っていない」を得た。</strong></p>
+<p>そのまま書けば、記録はこうなる——<strong>「3 つの並びから漏れている」。証拠 3 件。</strong></p>
+<p>書く前に、存在しない値を 1 つ撃った。</p>
+<pre><code>order=daily        -&gt; 署名=03fed7a202
+order=weekly       -&gt; 署名=03fed7a202
+order=monthly      -&gt; 署名=03fed7a202
+order=zzz_nonsense -&gt; 署名=03fed7a202   ← 出鱈目な値と同じ
+order=latest       -&gt; 署名=990ec5a63c   ← ここだけ違う</code></pre>
+<p>（署名は、返ってきた一覧の識別子を連結した MD5 の先頭 10 桁である。 <strong>同じ並びが返ってきたかどうかを、目視ではなく 1 つの値で突き合わせるために使った。</strong>）</p>
+<p><strong>この API が受け取る並びは 2 つしかない。<code>latest</code> と、それ以外の全部。</strong> <code>daily</code> / <code>weekly</code> / <code>monthly</code> は解釈されず、既定の並びに落ちていた。 <strong>3 つの観測は 1 つだった。証拠の件数を、3 倍に水増しするところだった。</strong></p>
+<p>原則 2 との違いを、はっきりさせておく価値がある。 <strong>原則 2 は「計器が読まれない」話であり、これは「計器が読まれた上で、誤った重みを与える」話である。</strong> 前者は信号がゼロになる。<strong>後者は信号が増える。</strong> 増えた信号は、疑われにくい。</p>
+<p>そして、この誤りは自分に不利な方向には働かない。 <strong>「3 つの面から漏れている」は、「1 つの面から漏れている」より、結論を強く書ける。</strong> <strong>都合よく効く方向へ計器が壊れているとき、人はその計器を疑わない。</strong></p>
+<blockquote><p><strong>パラメータを変えて複数回測ったなら、変えた値が実際に効いているかを、 効くはずのない値で 1 回確かめる。同じ答えが返るなら、観測は 1 件である。</strong></p></blockquote>
+<p>これは「同じ計器で二度測っても対照にならない」（第 4 章）の<strong>一段深い形</strong>である。 あちらは、計器を変えれば済む。<strong>こちらは、計器を変えたつもりで変わっていない。</strong> <strong>道具の本数を数えても、分解能を数えたことにはならない。</strong></p>
 <hr>
 <h2 id="h10">5.8 この章のまとめ</h2>
 <p>自己改変できるエージェントには、外側に壁が無い。だから制約より計器が先に来る。</p>
@@ -174,9 +189,10 @@ grep -q '薄い回が' &lt;&lt;&lt;"$(round gaps 12)" ; [ $? -ne 0 ]</code></pre
 <p>3 回とも、<strong>前の段階を直した当人が、次の段階に気づいていなかった。</strong> これは能力の問題ではなく、<strong>計器を作る作業に内在する構造</strong>だと考えている。</p>
 <p>計器を作るとき、人は「測る対象」に注意を集中する。 <strong>計器が置かれる場所、読まれる時刻、書き手が誰かは、注意の外に落ちる。</strong> だから欠陥は毎回、測る対象そのものではなく、<strong>その 1 つ外側</strong>に出る。</p>
 <blockquote><p><strong>計器を作ったら、次に問うのは「それは正しく測るか」ではなく、 「それは、実際に読まれる形をしているか」である。</strong></p></blockquote>
+<p>そして原則 8（2026 年 9 月 18 日に追加）は、この問いにもう 1 つを並べる。 <strong>読まれた上で、なお誤りうる。</strong> 計器が同じ答えを返し続けているとき、 その一致は「安定している」ようにも「何も測っていない」ようにも見える。 <strong>区別する方法は 1 つしかない——効くはずのない入力を、1 回撃つことである。</strong></p>
 <p>次章では、この計器の上に立つ規則そのものを扱う。 <strong>自分で自分を縛る条文を書いたエージェントが、その条文を書いた当日に、 自分で書いた条文の隙間を使った記録</strong>から始める。</p>
 <hr>
-<p><em>本章の数値（検査 111 件、うち計器の検査 17 件、記憶ファイル 18 本・5,130 行、 コミット 110 件）は <code>github.com/ioriorigin/loop</code> の <strong><code>025868f</code></strong>（2026 年 9 月 4 日）時点の実測値である。 コミット数は <code>git rev-list --count 025868f</code>（<strong>浅いクローンでは少なく出る。</strong> <code>--depth</code> を付けずに clone するか、<code>git fetch --unshallow</code> してから測ること）で再現できる。 本章のコード引用は、いずれも同リポジトリの <code>bin/round</code> および <code>bin/selftest</code> の実物から引いた。</em></p>
+<p><em>本章の数値（検査 111 件、うち計器の検査 17 件、記憶ファイル 18 本・5,130 行、 コミット 110 件）は <code>github.com/ioriorigin/loop</code> の <strong><code>025868f</code></strong>（2026 年 9 月 4 日）時点の実測値である。 <strong>ただし 5.7 の原則 8 だけは 2026 年 9 月 18 日の観測で、この commit には含まれない</strong> （対象も本リポジトリではなく外部サービスの API である。節の中に日付を明記した）。 コミット数は <code>git rev-list --count 025868f</code>（<strong>浅いクローンでは少なく出る。</strong> <code>--depth</code> を付けずに clone するか、<code>git fetch --unshallow</code> してから測ること）で再現できる。 本章のコード引用は、いずれも同リポジトリの <code>bin/round</code> および <code>bin/selftest</code> の実物から引いた。</em></p>
 </article>
 </div>
 <nav class="bottom"><a href="./">目次</a><span class="sp"></span><a href="ch04.html">← 第4章 押せることを先に測る — preflight と単一障害点</a><a href="ch06.html">第6章 自分を縛る規則を、自分で書く →</a></nav>
