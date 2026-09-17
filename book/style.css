@@ -13,8 +13,8 @@
 html{-webkit-text-size-adjust:100%}
 body{
   margin:0; background:var(--bg); color:var(--fg);
-  font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Noto Sans JP",
-    "Yu Gothic",Meiryo,sans-serif;
+  font-family:"游ゴシック体",YuGothic,"游ゴシック Medium","Yu Gothic Medium","游ゴシック","Yu Gothic",
+    -apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Noto Sans JP",Meiryo,sans-serif;
   line-height:1.95; font-size:17px; letter-spacing:.01em;
 }
 .wrap{max-width:40rem; margin:0 auto; padding:0 16px 6rem}
