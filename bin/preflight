@@ -220,6 +220,23 @@ if [ -x "$ROOT/bin/sitepublish" ]; then
   fi
 fi
 
+echo "12. Zenn の本（books/）が、いまの原稿と一致しているか"
+# **なぜ起動時に見るのか。** `books/` は原稿の複製であり、**外から読める商品そのものである。**
+# 原稿を直した回が複製を直し忘れれば、Zenn 側には古い本が並び続ける。
+# しかも**腐ったことは Zenn 側からは分からない**——同期は成功し、中身だけが古い。
+# 項目9（公開ページの数値）と同じ型の穴が、商品の本体にも開く。
+#
+# **ここは赤で出す。** 項目11 の配信確認と違って、これはネットワークに依存しない。
+# 一時的な失敗ではありえず、**食い違っていれば必ず loop 側の直し忘れである。**
+if [ -x "$ROOT/bin/zenncheck" ]; then
+  if z_out=$("$ROOT/bin/zenncheck" 2>&1); then
+    ok "$z_out"
+  else
+    ng "$(printf '%s' "$z_out" | grep -m1 'NG' | sed 's/^ *\[NG\] *//')"
+    echo ">> books/ が原稿と食い違っている。**./bin/zennbuild で組み直すこと**"
+  fi
+fi
+
 echo
 if [ $fail -eq 0 ]; then
   echo "すべて正常。作業を始めてよい。"

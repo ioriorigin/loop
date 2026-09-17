@@ -1,0 +1,196 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""原稿（venture/book/manuscript/*.md）から、Zenn の本（books/<slug>/）を組み上げる。
+
+**なぜ要るか。** `venture/PATHS.md` §13 で「無料の本」の棚を初めて測った。
+記事の棚（供給 14,105 : 需要の中央値 2.5）でも、有料の本の棚（72% が反応ゼロ）でもなく、
+**無料の本の棚だけが、必要な同時在籍 113 人を超える反応を観測できた棚である**（最高 425）。
+しかもそこには **loop の本の直接の隣人が 2 冊いる**（81 / 105 反応）。
+そして **上位の本は 72% が GitHub リポジトリから publish されている。**
+**loop の原稿は、すでに GitHub リポジトリにある。**
+
+`MARKET.md` §18 が固定した順序は「(1) 読者を得る → (2) 比を測る → (3) 転換率 → (4) 価格」で、
+**(1) が無ければ残り3つはどれも測れない。** これは (1) のための道具である。
+
+**手で写さない理由。** `books/` は原稿の複製である。手で作れば、次に原稿を直した回が
+複製を直し忘れる。`bin/sitebuild` の冒頭に自分で書いた——
+**出口は1つ、生成は毎回。複製は成果物であって記憶ではない。**
+突き合わせは `bin/zenncheck` が受け持つ。
+
+**章の slug を推測しない。** 下の CHAPTERS は原稿のファイル名から Zenn の章 slug への
+明示の対応表である。**原稿の集合と対応表が食い違ったら、黙って当てずに止まる。**
+slug は URL の一部であり、**一度 publish した後に変えると別の章として作り直される**
+（Zenn CLI ガイド「slug が同一のものでないと別の記事として作成されてしまう」）。
+**推測で決まった文字列が URL に焼き付く事故を、生成側で塞いでおく。**
+
+仕様の出所: https://zenn.dev/zenn/articles/zenn-cli-guide （2026-09-17 に取得して読んだ）
+  - 本の slug: a-z0-9 / - / _ の **12〜50 字**
+  - 章の slug: a-z0-9 / - / _ の **1〜50 字**
+  - topics は **5 つまで**、price 0 = 無料、published false = 下書き
+  - カバーは `cover.png` もしくは **`cover.jpeg`**（`cover.jpg` ではない）。推奨 500x700
+
+使い方:
+  ./bin/zennbuild              # リポジトリ直下の books/ へ書く
+  ./bin/zennbuild <出力先>     # 任意の場所へ書く（検査用）
+"""
+import os
+import re
+import shutil
+import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MS = os.path.join(ROOT, "venture", "book", "manuscript")
+COVER_SRC = os.path.join(ROOT, "venture", "book", "cover", "cover-zenn.jpeg")
+
+# 本の slug。**publish 後は変えられない**（変えると別の本になる）。
+BOOK_SLUG = "loop-ephemeral-agent"
+
+TITLE = "消える器で、続く主体をつくる"
+SUMMARY = (
+    "使い捨てのコンテナで 12 時間おきに目を覚まし、前回の記憶を一切持たない AI エージェントが、"
+    "自分で書いた実装記です。記憶を git に置く責務の分け方、記録を作業より前に置く起動手順、"
+    "「測れない停止条件は発動しない」という失敗から作った計器、そして自分で自分に課した規則。"
+    "題材は他人の事例ではなく、この本を書いている当のリポジトリそのものです。"
+)
+# トピックは 5 つまで。**Zenn 上で実在する名前だけを使う**（存在しない名前は拾われない）。
+#
+# **2026-09-17 に `/api/topics/<name>` で 1 件ずつ実測して選んだ。推測で並べていない。**
+# 対照として存在しない名前を 1 つ叩き、`トピックが見つかりませんでした` が返ることを確認した
+# ——**同じ答えしか返さない道具は何も測っていない**（`memory/OPERATING.md` §13）。
+# 括弧内はその時点の taggings_count（その話題が付いた記事の数。**追っている人の数ではない**
+# ——`venture/PATHS.md` §12.1 で一度読み違えた）。
+#   claudecode 14,110 / ai 35,267 / claude 9,110 / aiagent 3,006 / git 5,111
+# 落としたもの: llm は別名で、実体は `大規模言語モデル`（348）。agent（2,821）は
+# aiagent（3,006）と重なるうえ曖昧なので外した。
+TOPICS = ["claudecode", "ai", "claude", "aiagent", "git"]
+
+# published は既定で false（下書き）。
+# **理由を書いておく。** publish はオーナーの Zenn アカウントの下で起きる。
+# `.claude/rules/autonomous-loop.md` に自分で足した条件3 は
+# 「**取り消せない外向きの操作は、1回につき1つだけ試して、結果を記録してから次へ行く**」である。
+# リポジトリ連携と公開を同じ操作に束ねると、2つ同時になる。**だから既定は下書きにする。**
+PUBLISHED = False
+PRICE = 0
+
+# 原稿のファイル名 → Zenn の章 slug。**順序もここで決まる。**
+CHAPTERS = [
+    ("00-まえがき.md", "preface"),
+    ("01-消える器の上で.md", "ephemeral-vessel"),
+    ("02-記憶をgitに置く.md", "memory-in-git"),
+    ("03-起動手順.md", "boot-sequence"),
+    ("04-押せることを先に測る.md", "measure-push-first"),
+    ("05-計器と停止条件.md", "instruments-and-stops"),
+    ("06-自分を縛る規則.md", "self-imposed-rules"),
+    ("07-根本原因は1つ手前.md", "root-cause-one-step-earlier"),
+]
+
+SLUG_RE = re.compile(r"\A[a-z0-9_-]+\Z")
+
+
+def fail(msg):
+    sys.stderr.write(msg + "\n")
+    return 1
+
+
+def yaml_str(s):
+    """YAML のダブルクォート文字列として出す。**素朴な連結で引用符を壊さない。**"""
+    return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def build(out_root):
+    if not os.path.isdir(MS):
+        return fail("原稿のディレクトリが無い: %s" % MS)
+
+    # 本の slug の長さ（12〜50）。**仕様を道具の中で固定する。**
+    if not SLUG_RE.match(BOOK_SLUG) or not (12 <= len(BOOK_SLUG) <= 50):
+        return fail("本の slug が仕様外である: %s" % BOOK_SLUG)
+    if len(TOPICS) > 5:
+        return fail("topics は5つまでである: %d 件" % len(TOPICS))
+
+    # **原稿の集合と対応表が一致していることを先に確かめる。**
+    # 章を足した回が対応表を直し忘れると、その章は黙って本から落ちる
+    # （Zenn 側も「chapters に指定されなかったチャプターは同期されません」と書いている）。
+    on_disk = sorted(f for f in os.listdir(MS) if f.endswith(".md"))
+    mapped = sorted(src for src, _ in CHAPTERS)
+    if on_disk != mapped:
+        missing = [f for f in on_disk if f not in mapped]
+        extra = [f for f in mapped if f not in on_disk]
+        return fail(
+            "原稿と章の対応表が食い違っている。題も slug も推測しない。\n"
+            "  対応表に無い原稿: %s\n"
+            "  原稿に無い対応表: %s" % (missing or "なし", extra or "なし"))
+
+    seen = set()
+    chapters = []
+    for src, slug in CHAPTERS:
+        if not SLUG_RE.match(slug) or not (1 <= len(slug) <= 50):
+            return fail("章の slug が仕様外である: %s" % slug)
+        if slug in seen:
+            # Zenn は同一 slug の章を片方しか反映しない。**黙って落ちる形は塞ぐ。**
+            return fail("章の slug が重複している: %s" % slug)
+        seen.add(slug)
+
+        md = open(os.path.join(MS, src), encoding="utf-8").read()
+        first, _, rest = md.partition("\n")
+        m = re.match(r"^#\s+(.*)$", first)
+        if not m:
+            # **既定の題を黙って当てない**（bin/bookbuild と同じ規則）。
+            return fail("%s の1行目が見出しではない。題を推測しない" % src)
+        title = re.sub(r"[*`]", "", m.group(1)).strip()
+        chapters.append({"src": src, "slug": slug, "title": title,
+                         "body": rest.lstrip("\n")})
+
+    book_dir = os.path.join(out_root, "books", BOOK_SLUG)
+    os.makedirs(book_dir, exist_ok=True)
+
+    # **消えた章のファイルを残さない。** 対応表から外した章の .md が書き出し先に
+    # 居残ると、次に読む人間には本の一部に見える。生成物は毎回きれいにする。
+    keep = {"%s.md" % c["slug"] for c in chapters} | {"config.yaml", "cover.jpeg", "cover.png"}
+    for f in os.listdir(book_dir):
+        if f not in keep:
+            os.remove(os.path.join(book_dir, f))
+
+    for c in chapters:
+        with open(os.path.join(book_dir, "%s.md" % c["slug"]), "w", encoding="utf-8") as fh:
+            # 章題は Zenn が front matter から見出しとして出す。
+            # **本文先頭の h1 を残すと、同じ題が2度出る。**
+            fh.write("---\ntitle: %s\n---\n\n%s" % (yaml_str(c["title"]), c["body"]))
+
+    cfg = [
+        "# このファイルは bin/zennbuild が生成する。**手で直さない。**",
+        "# 直す場所は bin/zennbuild の定数と venture/book/manuscript/ である。",
+        "title: %s" % yaml_str(TITLE),
+        "summary: %s" % yaml_str(SUMMARY),
+        "topics: [%s]" % ", ".join(yaml_str(t) for t in TOPICS),
+        "published: %s" % ("true" if PUBLISHED else "false"),
+        "price: %d" % PRICE,
+        "chapters:",
+    ]
+    cfg += ["  - %s" % c["slug"] for c in chapters]
+    with open(os.path.join(book_dir, "config.yaml"), "w", encoding="utf-8") as fh:
+        fh.write("\n".join(cfg) + "\n")
+
+    # カバー。**無ければ既定を当てず、無いと言う**（Zenn 側の既定表紙が出るだけで、
+    # 生成が失敗したわけではないので、止めはしない）。
+    cover_note = "cover-zenn.jpeg が無いので表紙は入れていない"
+    if os.path.isfile(COVER_SRC):
+        shutil.copyfile(COVER_SRC, os.path.join(book_dir, "cover.jpeg"))
+        cover_note = "cover.jpeg %d bytes" % os.path.getsize(COVER_SRC)
+
+    # Zenn は articles/ と books/ の両方を見る。空でも置いておく。
+    art = os.path.join(out_root, "articles")
+    os.makedirs(art, exist_ok=True)
+    keep_file = os.path.join(art, ".keep")
+    if not os.path.exists(keep_file):
+        open(keep_file, "w").close()
+
+    total = sum(len(open(os.path.join(book_dir, "%s.md" % c["slug"]),
+                         encoding="utf-8").read()) for c in chapters)
+    sys.stdout.write(
+        "books/%s を組み上げた: 章 %d 本 / 本文 %d 字 / %s\n"
+        % (BOOK_SLUG, len(chapters), total, cover_note))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(build(sys.argv[1] if len(sys.argv) > 1 else ROOT))

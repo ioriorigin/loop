@@ -1843,6 +1843,109 @@ check $? "  止めるときは permissionDecision=deny を出す"
 grep -q 'read -r seg || \[ -n "$seg" \]' "$SRC/bin/pushguard"
 check $? "  終端に改行の無い最終行を落とさない（初版の欠陥）"
 
+echo "AB. Zenn の本（bin/zennbuild / bin/zenncheck）— 2026-09-17 追加"
+# **なぜ検査するのか。** `books/` は原稿の複製で、**外から読める商品そのものである。**
+# 複製は、原稿を直した回が直し忘れた瞬間に腐る。しかも腐ったことは Zenn 側では分からない。
+#
+# **もうひとつ。章の slug は URL の一部であり、publish 後に変えると別の章として作り直される。**
+# 推測で決まった文字列が URL に焼き付く事故を、生成側で塞いである。ここはその見張り番である。
+ab_ms="$T/ab/venture/book/manuscript"
+mkdir -p "$ab_ms" "$T/ab/bin"
+cp "$SRC/bin/zennbuild" "$SRC/bin/zenncheck" "$T/ab/bin/"
+ab_build(){ python3 "$T/ab/bin/zennbuild" "$1" 2>&1; }
+
+# 原稿の集合は、対応表と1対1でなければならない。**足りなければ黙って落ちる。**
+printf '# まえがき\n本文\n' > "$ab_ms/00-まえがき.md"
+ab_out="$(ab_build "$T/ab/o1" || true)"
+printf '%s' "$ab_out" | grep -q '食い違っている'
+check $? "  原稿が対応表より少なければ止まる（章が黙って落ちない）"
+
+# 対応表に無い原稿を足しても止まる。**新しい章は slug を決めるまで本に入らない。**
+for f in 01-消える器の上で 02-記憶をgitに置く 03-起動手順 04-押せることを先に測る \
+         05-計器と停止条件 06-自分を縛る規則 07-根本原因は1つ手前; do
+  printf '# %s\n本文\n' "$f" > "$ab_ms/$f.md"
+done
+printf '# 第8章\n本文\n' > "$ab_ms/08-未登録.md"
+ab_out="$(ab_build "$T/ab/o2" || true)"
+printf '%s' "$ab_out" | grep -q '食い違っている'
+check $? "  対応表に無い原稿を足しても止まる（slug を推測しない）"
+rm "$ab_ms/08-未登録.md"
+
+# ここからは正常系。
+ab_build "$T/ab/o3" > /dev/null
+ab_dir="$T/ab/o3/books/loop-ephemeral-agent"
+[ -f "$ab_dir/config.yaml" ] && [ -f "$ab_dir/preface.md" ]
+check $? "  config.yaml と章ファイルを書き出す"
+
+# **1行目が見出しでなければ題を推測しない**（bin/bookbuild と同じ規則）。
+printf '見出しではない\n' > "$ab_ms/00-まえがき.md"
+ab_out="$(ab_build "$T/ab/o4" || true)"
+printf '%s' "$ab_out" | grep -q '題を推測しない'
+check $? "  1行目が見出しでなければ止まる"
+printf '# まえがき\n本文\n' > "$ab_ms/00-まえがき.md"
+
+# **本文先頭の h1 を残さない。** 残すと Zenn が front matter の題と合わせて2度出す。
+grep -q '^title: "まえがき"$' "$ab_dir/preface.md"
+check $? "  章題を front matter に入れる"
+! grep -q '^# まえがき$' "$ab_dir/preface.md"
+check $? "  本文先頭の h1 を落とす（題が2度出ない）"
+
+# 並び順は config.yaml が決める。**chapters に無い章は Zenn に同期されない。**
+[ "$(grep -c '^  - ' "$ab_dir/config.yaml")" = "8" ]
+check $? "  chapters に章を全部並べる"
+grep -q '^  - preface$' "$ab_dir/config.yaml" && \
+  [ "$(grep -n '^  - preface$' "$ab_dir/config.yaml" | cut -d: -f1)" -lt \
+    "$(grep -n '^  - ephemeral-vessel$' "$ab_dir/config.yaml" | cut -d: -f1)" ]
+check $? "  chapters の並びが原稿の順である"
+
+# 仕様（2026-09-17 に Zenn CLI ガイドで確認）: 本の slug は 12〜50 字、topics は5つまで、
+# 価格 0 が無料。**数字を道具の中で固定しておかないと、次の回が仕様を思い出せない。**
+ab_slug="$(sed -n 's/^BOOK_SLUG = "\(.*\)"$/\1/p' "$T/ab/bin/zennbuild")"
+[ "${#ab_slug}" -ge 12 ] && [ "${#ab_slug}" -le 50 ]
+check $? "  本の slug が 12〜50 字である"
+printf '%s' "$ab_slug" | grep -qE '^[a-z0-9_-]+$'
+check $? "  本の slug が a-z0-9 と - _ だけである"
+[ "$(grep -c '^  - ' "$ab_dir/config.yaml")" -le 100 ]
+check $? "  章が 100 本を超えない（Zenn の上限）"
+grep -q '^price: 0$' "$ab_dir/config.yaml"
+check $? "  price が 0（無料）である"
+[ "$(sed -n 's/^topics: \[\(.*\)\]$/\1/p' "$ab_dir/config.yaml" | tr ',' '\n' | wc -l)" -le 5 ]
+check $? "  topics が5つ以内である"
+# **既定は下書きである。** publish はオーナーの Zenn アカウントの下で起きる。
+# 規則に自分で足した条件3（取り消せない外向きの操作は1回に1つ）に従って、
+# リポジトリ連携と公開を同じ操作に束ねない。
+grep -q '^published: false$' "$ab_dir/config.yaml"
+check $? "  既定は下書き（連携と公開を束ねない）"
+
+# 章 slug の重複は Zenn 側で片方が黙って消える。**生成側で止める。**
+grep -q '章の slug が重複している' "$T/ab/bin/zennbuild"
+check $? "  章 slug の重複を止める"
+
+# カバーは cover.png か **cover.jpeg**。`cover.jpg` は仕様に無い。
+grep -q 'cover.jpeg' "$T/ab/bin/zennbuild"
+check $? "  カバーを cover.jpeg として置く（cover.jpg ではない）"
+
+# **対応表から外した章の残骸を置いていかない。** 残ると本の一部に見える。
+printf 'ゴミ\n' > "$ab_dir/stale-chapter.md"
+ab_build "$T/ab/o3" > /dev/null
+[ ! -f "$ab_dir/stale-chapter.md" ]
+check $? "  対応表に無いファイルを書き出し先に残さない"
+
+# 突き合わせ器に検出力があるか。**変異させて、落ちることを見る。**
+mkdir -p "$T/ab/chk/bin"
+cp "$SRC/bin/zennbuild" "$SRC/bin/zenncheck" "$T/ab/chk/bin/"
+mkdir -p "$T/ab/chk/venture/book"
+cp -r "$ab_ms" "$T/ab/chk/venture/book/manuscript"
+python3 "$T/ab/chk/bin/zennbuild" "$T/ab/chk" > /dev/null
+python3 "$T/ab/chk/bin/zenncheck" > /dev/null 2>&1
+check $? "  組み上げ直後は一致と言う"
+printf '\n足した1行\n' >> "$T/ab/chk/venture/book/manuscript/01-消える器の上で.md"
+! python3 "$T/ab/chk/bin/zenncheck" > /dev/null 2>&1
+check $? "  原稿を1行変えたら食い違いを検出する"
+git -C "$SRC" check-ignore -q books 2>/dev/null && ab_ign=0 || ab_ign=1
+[ "$ab_ign" -eq 1 ]
+check $? "  books/ が ignore されていない（Zenn はリポジトリから読む）"
+
 echo
 echo "── 結果: 成功 $pass / 失敗 $fail"
 if [ "$fail" -gt 0 ]; then
