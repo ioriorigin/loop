@@ -2027,6 +2027,101 @@ git -C "$SRC" check-ignore -q books 2>/dev/null && ab_ign=0 || ab_ign=1
 check $? "  books/ が ignore されていない（Zenn はリポジトリから読む）"
 
 echo
+echo "AC. Zenn の記事（articles/ は手書き。組み上げ結果ではない）— 2026-09-18 追加"
+# **この節が固定する欠陥。** articles/ を組み上げ結果と1バイト比較していたので、
+# 人が置いた記事が必ず「組み上げに無い」と報告された。
+# **生成物と手書きを同じ規則で検査すると、手書きのほうを欠陥として報告する計器になる。**
+ac_root="$T/ac"
+mkdir -p "$ac_root/bin" "$ac_root/venture/book"
+cp "$SRC/bin/zennbuild" "$SRC/bin/zenncheck" "$ac_root/bin/"
+cp -r "$ab_ms" "$ac_root/venture/book/manuscript"
+python3 "$ac_root/bin/zennbuild" "$ac_root" > /dev/null
+
+ac_art() {  # $1=slug $2=front matter 本体
+  printf -- '---\n%s---\n\n本文\n' "$2" > "$ac_root/articles/$1.md"
+}
+ac_ok='title: "見出し"
+emoji: "📐"
+type: "tech"
+topics: ["zenn", "ai"]
+published: true
+'
+
+# **`set -o pipefail` が効いているので、`zenncheck | grep` は使えない。**
+# zenncheck は異常時に 1 で終わるので、grep が当たってもパイプ全体が 1 を返す。
+# **失敗を期待している検査を、失敗そのもので落とすことになる。** だから出力を先に受ける。
+ac_out() { python3 "$ac_root/bin/zenncheck" 2>&1; }
+
+python3 "$ac_root/bin/zenncheck" > /dev/null 2>&1
+check $? "  記事が無くても一致と言う"
+
+ac_art "zenn-shelf-measurement" "$ac_ok"
+python3 "$ac_root/bin/zenncheck" > /dev/null 2>&1
+check $? "  手書きの記事を「組み上げに無い」と言わない"
+
+ac_out | grep -q '記事 1 本'
+check $? "  記事の本数を数える"
+
+# **published: true を弾かない。** 公開は判断であって、書式の誤りではない。
+ac_out | grep -q 'published'
+[ $? -ne 0 ]
+check $? "  published: true を書式の誤りとして報告しない"
+
+ac_bad() {  # $1=slug $2=front matter $3=期待する語
+  ac_art "$1" "$2"
+  local out rc
+  out=$(ac_out); rc=$?
+  rm -f "$ac_root/articles/$1.md"
+  [ $rc -ne 0 ] && printf '%s' "$out" | grep -q "$3"
+}
+
+ac_bad "zenn-type-broken" 'title: "x"
+emoji: "x"
+type: "essay"
+topics: ["ai"]
+published: false
+' 'type は tech か idea'
+check $? "  type が tech / idea でないものを止める"
+
+ac_bad "zenn-topics-overflow" 'title: "x"
+emoji: "x"
+type: "tech"
+topics: ["a", "b", "c", "d", "e", "f"]
+published: false
+' 'topics は 1〜5 個'
+check $? "  topics が 6 個あるものを止める"
+
+ac_bad "zenn-missing-title" 'emoji: "x"
+type: "tech"
+topics: ["ai"]
+published: false
+' 'title が無い'
+check $? "  front matter に title が無いものを止める"
+
+printf '本文だけ\n' > "$ac_root/articles/zenn-no-frontmatter.md"
+! python3 "$ac_root/bin/zenncheck" > /dev/null 2>&1
+check $? "  front matter が無いものを止める"
+ac_nf=$(ac_out || true)
+printf '%s' "$ac_nf" | grep -q '組み直しでは直らない'
+check $? "  記事の誤りに「zennbuild で組み直せ」と言わない（直し方が違う）"
+printf '%s' "$ac_nf" | grep -qv 'zennbuild で組み直すこと' 
+check $? "  books/ 側の指示を出さない（books/ は一致している）"
+rm -f "$ac_root/articles/zenn-no-frontmatter.md"
+
+# slug はファイル名である。**12 文字未満は Zenn 側で弾かれる。**
+printf -- '---\n%s---\n' "$ac_ok" > "$ac_root/articles/short.md"
+! python3 "$ac_root/bin/zenncheck" > /dev/null 2>&1
+check $? "  slug が 12 文字未満のものを止める"
+rm -f "$ac_root/articles/short.md"
+
+python3 "$ac_root/bin/zenncheck" > /dev/null 2>&1
+check $? "  壊れた記事を取り除けば一致に戻る"
+
+git -C "$SRC" check-ignore -q articles 2>/dev/null && ac_ign=0 || ac_ign=1
+[ "$ac_ign" -eq 1 ]
+check $? "  articles/ が ignore されていない（Zenn はリポジトリから読む）"
+
+echo
 echo "── 結果: 成功 $pass / 失敗 $fail"
 if [ "$fail" -gt 0 ]; then
   echo ">> 壊れている。直すまで本番で使うな。"

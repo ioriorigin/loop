@@ -10,11 +10,19 @@
 **「たぶん合っている」を作らない**——`bin/zennbuild` が唯一の生成器なので、
 それが出すものと違っていれば、違っているほうが間違いである。
 
+**`articles/` は比べない。書式だけ見る**（2026-09-18 追加）。
+Zenn は `articles/` と `books/` の両方を同期するが、**記事は原稿から組み上がるものではない。**
+`articles/` を組み上げ結果と1バイト比較すると、**人が置いた記事が必ず「組み上げに無い」と出る。**
+生成物と手書きを同じ規則で検査すると、手書きのほうを欠陥として報告する計器になる。
+だから記事には、記事にだけ意味のある検査（front matter と slug）を当てる。
+
 使い方:
   ./bin/zenncheck            # 0 = 一致 / 1 = 食い違い
 """
 import filecmp
+import io
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -33,6 +41,53 @@ def walk(root):
     return out
 
 
+SLUG_RE = re.compile(r"^[a-z0-9_-]{12,50}$")
+ARTICLE_TYPES = ("tech", "idea")
+
+
+def article_files():
+    """`articles/` 直下の .md（ファイル名がそのまま slug になる）。"""
+    d = os.path.join(ROOT, "articles")
+    if not os.path.isdir(d):
+        return []
+    return sorted(f for f in os.listdir(d) if f.endswith(".md"))
+
+
+def check_articles():
+    """記事の front matter と slug を見る。**中身の正しさは検査しない。**
+
+    見るのは Zenn が要求する形式だけである（`https://zenn.dev/zenn/articles/zenn-cli-guide`）。
+    **`published: true` を弾かない。** 公開するかどうかは判断であって、書式の誤りではない。
+    """
+    bad = []
+    for f in article_files():
+        slug = f[:-3]
+        if not SLUG_RE.match(slug):
+            bad.append("articles/%s: slug が a-z0-9_- の 12〜50 文字でない" % f)
+        path = os.path.join(ROOT, "articles", f)
+        text = io.open(path, encoding="utf-8").read()
+        if not text.startswith("---\n"):
+            bad.append("articles/%s: front matter が無い" % f)
+            continue
+        end = text.find("\n---\n", 3)
+        if end < 0:
+            bad.append("articles/%s: front matter が閉じていない" % f)
+            continue
+        head = text[4:end + 1]
+        for key in ("title", "emoji", "type", "topics", "published"):
+            if not re.search(r"^%s:" % key, head, re.M):
+                bad.append("articles/%s: front matter に %s が無い" % (f, key))
+        m = re.search(r'^type:\s*"?([a-z]+)"?', head, re.M)
+        if m and m.group(1) not in ARTICLE_TYPES:
+            bad.append("articles/%s: type は tech か idea（いまは %s）" % (f, m.group(1)))
+        m = re.search(r"^topics:\s*\[(.*)\]", head, re.M)
+        if m:
+            topics = [t for t in m.group(1).split(",") if t.strip()]
+            if not 1 <= len(topics) <= 5:
+                bad.append("articles/%s: topics は 1〜5 個（いまは %d 個）" % (f, len(topics)))
+    return bad
+
+
 def main():
     have_books = os.path.isdir(os.path.join(ROOT, "books"))
     if not have_books:
@@ -47,9 +102,9 @@ def main():
             sys.stderr.write("組み上げに失敗した:\n%s\n" % (r.stderr or r.stdout))
             return 1
 
-        # 比べるのは books/ と articles/ だけ。**リポジトリの他の中身は対象外である。**
+        # **1バイト比較をするのは books/ だけである。** articles/ は手書きなので別の検査を当てる（下）。
         bad = []
-        for top in ("books", "articles"):
+        for top in ("books",):
             want = walk(os.path.join(tmp, top)) if os.path.isdir(os.path.join(tmp, top)) else set()
             got = walk(os.path.join(ROOT, top)) if os.path.isdir(os.path.join(ROOT, top)) else set()
             for rel in sorted(want - got):
@@ -62,15 +117,25 @@ def main():
                 if not filecmp.cmp(a, b, shallow=False):
                     bad.append("中身が違う: %s/%s" % (top, rel))
 
-        if bad:
-            for line in bad:
+        art_bad = check_articles()
+
+        if bad or art_bad:
+            for line in bad + art_bad:
                 sys.stderr.write("  [NG] %s\n" % line)
-            sys.stderr.write(">> books/ が原稿と食い違っている。"
-                             "**外から読める商品である。** ./bin/zennbuild で組み直すこと\n")
+            # **直し方が違うので、指示を混ぜない。**
+            # books/ は組み直す。articles/ は手で書いたものなので、手で直す。
+            if bad:
+                sys.stderr.write(">> books/ が原稿と食い違っている。"
+                                 "**外から読める商品である。** ./bin/zennbuild で組み直すこと\n")
+            if art_bad:
+                sys.stderr.write(">> articles/ の front matter か slug が Zenn の形式に合っていない。"
+                                 "**組み直しでは直らない。** 記事そのものを直すこと\n")
             return 1
 
         n = len([f for f in walk(os.path.join(ROOT, "books")) if f.endswith(".md")])
-        sys.stdout.write("books/ は原稿と一致（章 %d 本）\n" % n)
+        a = len(article_files())
+        sys.stdout.write("books/ は原稿と一致（章 %d 本）/ articles/ の書式は正常（記事 %d 本）\n"
+                         % (n, a))
         return 0
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
