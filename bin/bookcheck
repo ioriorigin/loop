@@ -74,6 +74,68 @@ else
   echo "  [ok] コミット数の主張 $checked 件を実物の git で検算した"
 fi
 
+# ---- 字数の主張が、原稿の実測と一致しているか ------------------------
+#
+# なぜ要るか（2026-09-18）。**同じ商品の字数が、外から読める3面で3つとも違っていた。**
+# README 45,938 / LISTING.md 46,838 / 紹介ページ 49,065、実測 50,919。
+# 紹介ページだけは `data-metric` の印を持っていて `bin/sitecheck` が毎回突き合わせており、
+# **印を持つ1面だけが正しく、印を持たない2面が腐っていた。**
+#
+# LISTING.md は「**そのまま貼ってください**」と渡す商品説明であり、README は公開リポジトリの顔である。
+# どちらも道具ではなく**売り物**なので、検査は原稿の側（この道具）に置く。
+#
+# 印は HTML コメント `<!-- metric:manuscript-chars -->` で、**主張と同じ行に置く。**
+# 行を分けない理由: 過去の訂正記録にも同じ字数の文字列が現れるので、
+# **文面での grep では「いまの主張」と「訂正前の記録」を区別できない。**
+# 印の付いた行だけを見る（`site/index.html` の `data-metric` と同じ考え方である）。
+# 面の一覧は既定を持つが、**上書きできるようにしてある。**
+# 合成の原稿で検出力だけを測る回帰テスト（bin/selftest U2 節）が、
+# 実物の README を書き換えずにこの節を叩けるようにするためである。
+# **検査に検査を当てられない道具は、検出力を測れない。**
+FACES="${BOOKCHECK_FACES:-README.md venture/book/LISTING.md}"
+COUNT_SH="$(dirname "$DIR")/count.sh"
+if [ -x "$COUNT_SH" ] || [ -f "$COUNT_SH" ]; then
+  chars=$(bash "$COUNT_SH" 2>/dev/null | awk '/^合計/ {print $NF}')
+else
+  chars=""
+fi
+if [ -z "$chars" ]; then
+  # **測れなかったことを、一致の報告に混ぜない**（浅いクローンの扱いと同じ）
+  echo "  [--] 字数を測れなかった（$COUNT_SH が読めない）。**字数の主張は検査していない**"
+else
+  marked=0
+  # **この節の中で落ちた件数を別に数える。** `fail` は脚注の検査と共有されているので、
+  # これを使って分岐すると、脚注が落ちた回に字数の報告まで黙る。
+  # 逆に数えずに `[ok]` を出すと、**1 件落ちた回に「2 件一致した」と言う。**
+  # 変異テストで実際にそう出た（2026-09-18）。**検査の出力も、検算される対象である。**
+  cfail=0
+  for f in $FACES; do
+    [ -f "$f" ] || continue
+    while IFS= read -r line; do
+      marked=$((marked + 1))
+      # 印のある行から、最初に現れる「N 字」を拾う
+      claim=$(printf '%s' "$line" | grep -oE '[0-9][0-9,]* 字' | head -1 | grep -oE '[0-9,]+' | tr -d ',')
+      if [ -z "$claim" ]; then
+        echo "  [NG] $f: metric:manuscript-chars の印はあるが、同じ行に字数が無い"
+        fail=1; cfail=$((cfail + 1)); continue
+      fi
+      if [ "$claim" != "$chars" ]; then
+        echo "  [NG] $f: 字数 $claim と書いてあるが、実測は $chars"
+        fail=1; cfail=$((cfail + 1))
+      fi
+    done < <(grep -F 'metric:manuscript-chars' "$f" || true)
+  done
+  if [ "$marked" -eq 0 ]; then
+    # **印が1つも無いことを「一致」と言わない。** 検査していないだけである
+    echo "  [NG] 売り物の面に metric:manuscript-chars の印が1つも無い。**字数は検査されていない**"
+    fail=1
+  elif [ "$cfail" -eq 0 ]; then
+    echo "  [ok] 字数の主張 $marked 件が原稿の実測（$chars 字）と一致した"
+  else
+    echo "  [--] 字数の主張 $marked 件のうち $cfail 件が食い違っている（上の [NG]）"
+  fi
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo ">> 原稿の数値がリポジトリと食い違っている。**まえがきは読者に検算を勧めている。**"
   exit 1
