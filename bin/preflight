@@ -237,6 +237,25 @@ if [ -x "$ROOT/bin/zenncheck" ]; then
   fi
 fi
 
+echo "13. 発火間隔の較正（道具が持つ期待値と、実際に発火した時刻）"
+# **【2026-09-19 追加】2026-09-17 18:44 UTC に cron が 12h → 6h へ変わり、loop は 30 時間気づかなかった。**
+# その間ずっと `gaps` は「期待間隔 12 時間」と出し、6 時間おきの発火を
+# 「不定期の起動（間隔の対象外）」へ落とし、STATE と PR には
+# 「A-019（頻度の変更）は未回答」と書き続けた——**既に適用済みだった。**
+#
+# 既存の検査（selftest の「README の cron が round の期待間隔と一致する」）は
+# **README の数字と DEFAULT_INTERVAL_H を突き合わせていた。どちらも loop が自分で書いた数字である。**
+# **同じ主張の2つの複製を照合する検査は、常に合格する。** 実際 30 時間ずっと合格していた。
+#
+# **注意で出す。赤にしない。** cron を変えるのはオーナーで、loop は追随するしかない。
+# 食い違い自体は緊急事態ではなく、「定数を直せ」という作業指示である。
+if iv_out=$("$ROOT/bin/round" interval 2>&1); then
+  while IFS= read -r line; do ok "${line#  }"; done <<< "$iv_out"
+else
+  while IFS= read -r line; do warn "${line#  }"; done <<< "$iv_out"
+  echo ">> bin/round の DEFAULT_INTERVAL_H と INTERVAL_SINCE、README の cron を実測に合わせること"
+fi
+
 echo
 if [ $fail -eq 0 ]; then
   echo "すべて正常。作業を始めてよい。"
