@@ -69,3 +69,28 @@ awk -F'\t' '$1!="rank"{print $5}' shelf-all_<UTC>.tsv \
 awk -F'\t' '$1!="rank"{print $3}' shelf-all_<UTC>.tsv \
   | awk 'NR>1 && $0+0>prev+0{v++} {prev=$0} END{printf "%d / %d (%.2f%%)\n", v, NR-1, 100*v/(NR-1)}'
 ```
+
+## 【2026-09-19 12:5x UTC 追記】記事の棚を足した。そして**違反率だけでは棚を区別できない**
+
+- `articles-<topic>_<UTC>.tsv` — `https://zenn.dev/api/articles?topicname=...` の全ページ
+- 取り方: `./fetch_articles.sh claudecode`
+- 列は `rank / path / id / liked_count / bookmarked_count / comments_count / body_letters_count / article_type / principal_type / published_at / body_updated_at`
+
+**本の棚と違う点が2つある。読む前に知っておくこと。**
+
+1. **記事の API は 100 ページ（4800 件）で打ち切られる。** `page=101` は空を返す。
+   **4800 行ちょうどで終わったら、それは全数ではなく上限である**（本の棚 4228 件は全数だった）。
+   `fetch_articles.sh` はその場合に警告を出す
+2. **`published_at` の降順違反率は 1.6% で、本の棚（1.75%）とほぼ同じである。**
+   **にもかかわらず、順位相関は本が −0.81、記事が −0.04 で正反対である。**
+   本の棚は大域的に日付降順、記事の棚は**日付降順の走りを 77 本つないだ列**で、
+   走りの間は反応の多い順に階層化されている（`MARKET.md` §24）
+
+**つまり、上の awk（違反率）を記事の棚に当てると、本の棚と同じ数字が出て、同じ構造だと読める。違う。**
+**違反率は局所の量で、順位相関は大域の量である。片方だけでは棚の形が決まらない。**
+
+```bash
+# 走りの数を数える（局所と大域の食い違いは、これで見える）
+awk -F'\t' '$1!="rank"{print $10}' articles-claudecode_<UTC>.tsv \
+  | awk 'NR>1 && $0>prev{r++} {prev=$0} END{printf "走り %d 本 / %d 件（全部日付順なら1本・無作為なら約 %d 本）\n", r+1, NR, (NR+1)/2}'
+```
