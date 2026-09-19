@@ -3,6 +3,9 @@
 shelf="$1"   # "" = 全体, それ以外は topicname
 if [ -z "$shelf" ]; then base="https://zenn.dev/api/books?page="; else base="https://zenn.dev/api/books?topicname=${shelf}&page="; fi
 rank=0; page=1
+# 見出し行。これが無いと、次の回が差分を取るときに 1 冊目を見出しと誤認する
+# （2026-09-18 の TSV は手で足されており、09-19 の TSV には無かった。書式が回ごとに割れていた）
+printf 'rank\tpath\tliked_count\tprice\tpublished_at\tbody_updated_at\n'
 while :; do
   resp=$(curl -sS --max-time 30 "${base}${page}")
   n=$(printf '%s' "$resp" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(len(d.get("books",[])))' 2>/dev/null)
