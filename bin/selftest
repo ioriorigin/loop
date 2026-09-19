@@ -2121,6 +2121,97 @@ git -C "$SRC" check-ignore -q articles 2>/dev/null && ac_ign=0 || ac_ign=1
 [ "$ac_ign" -eq 1 ]
 check $? "  articles/ が ignore されていない（Zenn はリポジトリから読む）"
 
+echo "AD. 発火間隔の較正（bin/round interval）— 2026-09-19 追加"
+# **なぜ要るか。** 2026-09-17 18:44 UTC に cron が 12h → 6h へ変わり、loop は 30 時間気づかなかった。
+# 既存の検査（R 節の「README の cron が round の期待間隔と一致する」）は
+# **README の数字と DEFAULT_INTERVAL_H を突き合わせていた。どちらも loop が自分で書いた数字である。**
+# **同じ主張の2つの複製を照合する検査は、常に合格する。** 実際 30 時間ずっと合格していた。
+# ここが見るのは台帳の epoch、つまり**外から来る量**である。
+AD="$T/ad"; mkdir -p "$AD/bin" "$AD/memory"
+cp "$SRC"/bin/{_common.sh,round} "$AD/bin/"; chmod +x "$AD"/bin/*
+ADB=1788000000
+adledger(){  # $1=出力先  $2=間隔h  $3=本数  $4=開始epoch  $5=メモ
+  printf '# 発火台帳\n\n' > "$1"
+  local i=0
+  while [ "$i" -lt "$3" ]; do
+    printf -- '- `t%d` epoch=%s %s\n' "$i" "$(( $4 + i * $2 * 3600 ))" "$5" >> "$1"
+    i=$((i+1))
+  done
+}
+
+# 1) 期待と実測が一致していれば合格し、そう言う
+adledger "$AD/memory/rounds.md" 12 8 "$ADB" "定期発火"
+ad_out=$("$AD/bin/round" interval "$AD/memory/rounds.md" 12 6 0 2>&1); ad_rc=$?
+[ "$ad_rc" -eq 0 ]
+check $? "  実測 12h・期待 12h なら合格する"
+grep -q "較正ok" <<<"$ad_out"
+check $? "  合格したことを出力で言う"
+
+# 2) **本題。** 実測が 6h なのに期待が 12h なら落ちる。これが 09-17 に検出できなかった状態である
+adledger "$AD/memory/rounds.md" 6 8 "$ADB" "定期発火"
+ad_out=$("$AD/bin/round" interval "$AD/memory/rounds.md" 12 6 0 2>&1); ad_rc=$?
+[ "$ad_rc" -ne 0 ]
+check $? "  実測 6h・期待 12h なら落ちる（09-17 の 30 時間の盲点）"
+grep -q "食い違っている" <<<"$ad_out"
+check $? "  食い違いだと分かる文面を出す"
+grep -qE "実測の中央値 6\.0 時間" <<<"$ad_out"
+check $? "  実測値そのものを出す（食い違いの向きが読める）"
+
+# 3) 母集団は gaps と同じ。**不定期の起動は間隔に混ぜない**
+{ printf '# 発火台帳\n\n'
+  printf -- '- `a` epoch=%s 定期発火\n' "$ADB"
+  printf -- '- `b` epoch=%s オーナーからの問い合わせ\n' "$((ADB + 3600))"
+  printf -- '- `c` epoch=%s 定期発火\n' "$((ADB + 43200))"
+  printf -- '- `d` epoch=%s 定期発火\n' "$((ADB + 86400))"
+} > "$AD/memory/rounds.md"
+ad_out=$("$AD/bin/round" interval "$AD/memory/rounds.md" 12 6 0 2>&1)
+grep -q "較正ok" <<<"$ad_out"
+check $? "  不定期の起動は母集団に入れない（1 時間の間隔で 12h が壊れない）"
+
+# 4) **行の並びは時刻の並びではない**（merge=union。gaps と同じ前提）
+{ printf '# 発火台帳\n\n'
+  printf -- '- `late` epoch=%s 定期発火\n' "$((ADB + 43200))"
+  printf -- '- `early` epoch=%s 定期発火\n' "$ADB"
+  printf -- '- `last` epoch=%s 定期発火\n' "$((ADB + 86400))"
+} > "$AD/memory/rounds.md"
+ad_out=$("$AD/bin/round" interval "$AD/memory/rounds.md" 12 6 0 2>&1)
+grep -q "較正ok" <<<"$ad_out"
+check $? "  台帳の行が時刻順でなくても、epoch で並べ替えてから測る"
+
+# 5) **cron を変えた直後に赤くならない。** 常に赤い検査は読まれなくなる
+adledger "$AD/memory/rounds.md" 6 8 "$ADB" "定期発火"
+ad_out=$("$AD/bin/round" interval "$AD/memory/rounds.md" 12 6 "$((ADB + 86400 * 10))" 2>&1); ad_rc=$?
+[ "$ad_rc" -eq 0 ]
+check $? "  いまの cron が効いてからの発火が足りなければ、保留にして落とさない"
+grep -q "不合格ではない" <<<"$ad_out"
+check $? "  保留と不合格を、読む側が取り違えない文面になっている"
+
+# 6) since 以降だけを見る。**変更をまたいだ間隔は、どちらの設定の値でもない**
+{ printf '# 発火台帳\n\n'
+  # 古い設定（6h）で 3 本 → 変更 → 新しい設定（12h）で 3 本
+  printf -- '- `o1` epoch=%s 定期発火\n' "$ADB"
+  printf -- '- `o2` epoch=%s 定期発火\n' "$((ADB + 21600))"
+  printf -- '- `o3` epoch=%s 定期発火\n' "$((ADB + 43200))"
+  printf -- '- `n1` epoch=%s 定期発火\n' "$((ADB + 100000))"
+  printf -- '- `n2` epoch=%s 定期発火\n' "$((ADB + 100000 + 43200))"
+  printf -- '- `n3` epoch=%s 定期発火\n' "$((ADB + 100000 + 86400))"
+} > "$AD/memory/rounds.md"
+ad_out=$("$AD/bin/round" interval "$AD/memory/rounds.md" 12 6 "$((ADB + 100000))" 2>&1); ad_rc=$?
+[ "$ad_rc" -eq 0 ]
+check $? "  since 以降だけを見れば、古い 6h の間隔は混ざらない"
+grep -q "直近 2 本" <<<"$ad_out"
+check $? "  またいだ 1 本を落としている（3 件から間隔 2 本）"
+
+# 7) 道具が定数を2つとも持っている（片方だけ直すと較正が嘘になる）
+grep -qE '^DEFAULT_INTERVAL_H=[0-9]+' "$SRC/bin/round"
+check $? "  bin/round が DEFAULT_INTERVAL_H を持っている"
+grep -qE '^INTERVAL_SINCE=[0-9]+' "$SRC/bin/round"
+check $? "  bin/round が INTERVAL_SINCE を持っている（変更点が無いと較正が常に赤くなる）"
+
+# 8) preflight が実際にこれを呼んでいる。**呼ばれない計器は無いのと同じである**
+grep -q 'round" interval' "$SRC/bin/preflight"
+check $? "  preflight が毎回この較正を叩いている"
+
 echo
 echo "── 結果: 成功 $pass / 失敗 $fail"
 if [ "$fail" -gt 0 ]; then
