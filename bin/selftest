@@ -1466,6 +1466,54 @@ check $? "  実物の LISTING.md が印を持っている"
 
 
 
+# ── U3. SUMMARY が実測済みの検索語を保っているか（2026-09-20 追加） ────────
+# **この検査が生まれた欠陥。** 09-20 00:5x の回が SUMMARY を書き換えて
+# `Claude Code` を獲得し、**同じ操作で `エージェント` を失った**
+# （98 位 / 144 件 → 249 件を全走査して不在）。獲得だけを測り、失ったものを測っていなかった。
+# **検査はネットワークを叩かない**ので、ここでも偽の SUMMARY を置いて検出力だけを見る。
+echo "U3. SUMMARY の検索語（bin/bookcheck）の検出力（2026-09-20 追加）"
+
+B3="$T/book3"; mkdir -p "$B3/manuscript" "$B3/bin"
+printf '# 章\n\nあいうえお\n\n*2026 年 9 月 4 日時点の実測値である。*\n' > "$B3/manuscript/01-x.md"
+cat > "$B3/count.sh" <<'COUNTSH3'
+#!/usr/bin/env bash
+echo "合計 1234"
+COUNTSH3
+chmod +x "$B3/count.sh"
+printf '%s\n' '**全 7 章・1,234 字。** <!-- metric:manuscript-chars -->' > "$B3/FACE_A"
+
+mkzb() { printf 'TITLE = "x"\nSUMMARY = (\n    "%s"\n)\nTOPICS = []\n' "$1" > "$B3/bin/zennbuild"; }
+runb3() { (cd "$B3" && BOOKCHECK_FACES="FACE_A" "$SRC/bin/bookcheck" "$B3/manuscript" 2>&1); }
+
+# 両方の語を持つ SUMMARY は通る
+mkzb '12 時間ごとに定期起動する Claude Code が——その AI エージェント（自律エージェント）本人が書いた実装記です。'
+out=$(runb3); rc=$?
+[ "$rc" -eq 0 ]; check $? "  実測済みの検索語を2件とも持つ SUMMARY は通す"
+grep -q '検索語 2 件を保っている' <<<"$out"; check $? "  何件保っているかを言う"
+
+# **「自律エージェント」だけに潰すと落ちる**——実際に起きた欠陥そのものの回帰
+mkzb '12 時間ごとに定期起動する Claude Code が——その自律エージェント本人が書いた実装記です。'
+out=$(runb3); rc=$?
+[ "$rc" -eq 1 ]; check $? "  独立した『AI エージェント』が消えたら赤くする"
+grep -q 'AI エージェント' <<<"$out"; check $? "  どの語が落ちたかを名指しする"
+grep -q '検索語 2 件を保っている' <<<"$out" && check 1 "  落ちた回に「保っている」と言わない" || check 0 "  落ちた回に「保っている」と言わない"
+
+# Claude Code を落としても検出する
+mkzb '12 時間ごとに定期起動する主体が——その AI エージェント本人が書いた実装記です。'
+out=$(runb3); rc=$?
+[ "$rc" -eq 1 ]; check $? "  『Claude Code』が消えたら赤くする"
+
+# SUMMARY ブロックそのものが読めないときは、黙って通さない
+printf 'TITLE = "x"\nTOPICS = []\n' > "$B3/bin/zennbuild"
+out=$(runb3); rc=$?
+[ "$rc" -eq 1 ]; check $? "  SUMMARY を読み出せなければ赤くする（読めないことを一致と読まない）"
+grep -q '検索語は検査していない' <<<"$out"; check $? "  検査していないことを黙らずに言う"
+
+# **実物が、検査が守っている語を実際に持っていること**（道具が緑でも実物が無ければ何も守っていない）
+grep -qF 'Claude Code' "$SRC/bin/zennbuild"; check $? "  実物の zennbuild が『Claude Code』を持っている"
+grep -qF 'AI エージェント' "$SRC/bin/zennbuild"; check $? "  実物の zennbuild が『AI エージェント』を持っている"
+
+
 # ── V. 公開ページの数値が、リポジトリの実物と一致するか（2026-09-14 追加） ────────
 #
 # 2026-09-14 実測: `site/index.html` の刻印は 2 日前で `bin/pagestamp` は `[ok]` を出したが、
@@ -2213,7 +2261,70 @@ grep -q 'round" interval' "$SRC/bin/preflight"
 check $? "  preflight が毎回この較正を叩いている"
 
 echo
+# ── AE. preflight の状態ヘルパが、全部ちゃんと定義されているか（2026-09-20 追加） ────────
+# **この検査が生まれた欠陥。** 項目12（books/ が原稿と一致しているか）の**失敗側の枝**が、
+# 09-17 の導入時から `ng "..."` と書かれていた。**`ng` という関数は無い**
+# （定義してあるのは `ok` / `warn` / `bad` の3つ）。結果、この枝は
+# `ng: command not found` を出すだけで、**`[NG]` の行も出さず、`fail=1` も立てなかった。**
+# **books/ が原稿と食い違っている回に、preflight は緑で「作業を始めてよい」と言っていた。**
+#
+# **3日間、この枝は一度も実行されていない。** 実際に踏んだのは 09-20 の回が
+# SUMMARY を書き換えて `bin/zennbuild` を走らせる前に preflight を叩いたときである。
+# **落ちたときの出力を一度も見ずに置いた検査は、落ちたときに嘘をつく**——
+# 09-18 に `bin/bookcheck` で同じ型を踏んでメモに書いている。**同じ週に2度目である。**
+#
+# **だから、個別の typo ではなく「未定義の状態ヘルパ呼び出し」全体を見る。**
+# 次に別の枝で同じことをやっても、ここで落ちる。
+echo "AE. preflight の状態ヘルパが定義されているか（2026-09-20 追加）"
+
+pf="$SRC/bin/preflight"
+pf_defined=$(grep -oE '^[a-zA-Z_][a-zA-Z_0-9]*\(\)' "$pf" | sed 's/()//' | sort -u | tr '\n' ' ')
+
+# 前提: 3つの状態ヘルパが実在すること（これが消えたら下の検査は意味を失う）
+for h in ok warn bad; do
+  case " $pf_defined " in *" $h "*) check 0 "  preflight が $h() を定義している" ;;
+                          *) check 1 "  preflight が $h() を定義している" ;; esac
+done
+
+# `<小文字の語> "..."` の形で呼ばれていて、関数でも実在コマンドでもないものを探す
+undef_helpers() {
+  grep -nE '^[[:space:]]*[a-z_][a-z_0-9]*[[:space:]]+"' "$1" \
+    | sed -E 's/^([0-9]+):[[:space:]]*([a-z_][a-z_0-9]*)[[:space:]]+".*/\1 \2/' \
+    | while read -r ln tok; do
+        case " $pf_defined " in *" $tok "*) continue ;; esac
+        # **`command -v` を selftest の中から呼んではいけない。**
+        # selftest 自身が ok() / ng() を定義しているので、**`ng` は「実在する」と答える。**
+        # それは selftest の名前空間であって、preflight が走る名前空間ではない。
+        # **最初にこの検査を書いたとき、まさにその取り違えで変異を取り逃した**
+        # ——検出できない検査が「未定義は無い」と緑を出した。
+        # `OPERATING.md` §3「**計器は経路が実際に踏む対象を測らなければ何も測っていない。
+        # 名前が同じ ref は、同じ ref ではない**」が、関数名で出た形である。
+        # だから**関数を1つも持たない素のシェル**で問い合わせる。
+        bash --noprofile --norc -c 'command -v "$1" >/dev/null 2>&1' _ "$tok" && continue
+        echo "$ln:$tok"
+      done
+}
+
+out=$(undef_helpers "$pf")
+[ -z "$out" ]; check $? "  実物の preflight に未定義の状態ヘルパ呼び出しが無い"
+[ -n "$out" ] && echo "     見つかったもの: $out"
+
+# **変異テスト。** 元の欠陥（`bad` を `ng` に戻す）を入れたら、必ず見つかること。
+# 見つけられない検査を置くと、緑であること自体が嘘になる。
+cp "$pf" "$T/pf_mut"
+sed -i 's/^\([[:space:]]*\)bad "\$(printf/\1ng "$(printf/' "$T/pf_mut"
+grep -q 'ng "\$(printf' "$T/pf_mut"; check $? "  変異を実際に入れられた（変異テストが空振りしていない）"
+out=$(undef_helpers "$T/pf_mut")
+[ -n "$out" ]; check $? "  bad を ng に戻したら未定義として検出する"
+grep -q ':ng$' <<<"$out"; check $? "  どの語が未定義かを名指しする"
+
+# **失敗側の枝が fail を立てること**（[NG] を出すだけで exit 0 なら、報告は嘘になる）
+awk '/^echo "12\./{f=1} f&&/bad "/{print;exit}' "$pf" | grep -q 'bad "'
+check $? "  項目12 の失敗側の枝が bad（= fail=1 を立てる）を呼んでいる"
+
 echo "── 結果: 成功 $pass / 失敗 $fail"
+
+
 if [ "$fail" -gt 0 ]; then
   echo ">> 壊れている。直すまで本番で使うな。"
   exit 1
