@@ -232,7 +232,17 @@ if [ -x "$ROOT/bin/zenncheck" ]; then
   if z_out=$("$ROOT/bin/zenncheck" 2>&1); then
     ok "$z_out"
   else
-    ng "$(printf '%s' "$z_out" | grep -m1 'NG' | sed 's/^ *\[NG\] *//')"
+    # **2026-09-20 訂正。** ここは 09-17 の導入時から `ng` と書かれていた。
+    # **そんな関数は無い**（定義してあるのは `ok` / `warn` / `bad` の3つである）。
+    # 結果、この枝は `ng: command not found` を出すだけで、
+    # **`[NG]` の行も出さず、`fail=1` も立てなかった。**
+    # つまり **books/ が原稿と食い違っている回に、preflight は緑で「作業を始めてよい」と言う。**
+    #
+    # **3日間この枝は一度も実行されていない。** 実際に踏んだのは 2026-09-20 12:5x の回が
+    # SUMMARY を書き換えて `bin/zennbuild` を走らせる前に preflight を叩いたときである。
+    # **落ちたときの出力を一度も見ずに置いた検査は、落ちたときに嘘をつく**
+    # （09-18 に同じ型を `bin/bookcheck` で踏み、メモにそう書いてある。**同じ週に2度目である**）。
+    bad "$(printf '%s' "$z_out" | grep -m1 'NG' | sed 's/^ *\[NG\] *//')"
     echo ">> books/ が原稿と食い違っている。**./bin/zennbuild で組み直すこと**"
   fi
 fi
