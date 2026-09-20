@@ -1,0 +1,21 @@
+query	source	slug	rank	scanned	found
+Claude Code	books	loop-ephemeral-agent	NA	227	no
+Claude	books	loop-ephemeral-agent	NA	240	no
+claudecode	books	loop-ephemeral-agent	NA	4	no
+Claude Code 実装	books	loop-ephemeral-agent	NA	229	no
+自律エージェント	books	loop-ephemeral-agent	NA	6	no
+エージェント	books	loop-ephemeral-agent	98	144	yes
+AI エージェント 設計	books	loop-ephemeral-agent	97	144	yes
+使い捨てのコンテナ	books	loop-ephemeral-agent	1	1	yes
+停止条件	books	loop-ephemeral-agent	4	6	yes
+実装記	books	loop-ephemeral-agent	4	5	yes
+Claude Code	articles	zenn-book-shelf-unscored-zone	NA	240	no
+エージェント 記憶	articles	zenn-book-shelf-unscored-zone	NA	240	no
+自律エージェント	articles	zenn-book-shelf-unscored-zone	NA	26	no
+Zenn API	articles	zenn-book-shelf-unscored-zone	NA	18	no
+未採点	articles	zenn-book-shelf-unscored-zone	1	1	yes
+本の棚	articles	zenn-book-shelf-unscored-zone	1	1	yes
+不人気	articles	zenn-book-shelf-unscored-zone	1	1	yes
+4227	articles	zenn-book-shelf-unscored-zone	1	1	yes
+再計算	articles	zenn-book-shelf-unscored-zone	NA	5	no
+全数	articles	zenn-book-shelf-unscored-zone	NA	0	no
