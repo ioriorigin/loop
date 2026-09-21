@@ -1514,6 +1514,76 @@ grep -qF 'Claude Code' "$SRC/bin/zennbuild"; check $? "  実物の zennbuild が
 grep -qF 'AI エージェント' "$SRC/bin/zennbuild"; check $? "  実物の zennbuild が『AI エージェント』を持っている"
 
 
+echo
+echo "U5. 公開状態と外から読める面の食い違い（bin/bookcheck）の検出力（2026-09-21 追加）"
+
+# **回帰させたい欠陥。** 本を Zenn で公開した commit が、README の表に「公開している」を足し、
+# **冒頭の「出品はまだされていない」を残した。** 同じ文書の上下で、出ている／出ていないが割れた。
+# しかも**嘘が冒頭、真が下の表**という並びで、4 日間そのままだった。
+#
+# 日付のある行は履歴の記述なので検査しない。**その除外が効いていることも、ここで測る**
+# ——除外が広すぎれば、この検査は全件緑を返す定数になる。
+
+B5="$T/book5"; mkdir -p "$B5/manuscript" "$B5/books/loop-ephemeral-agent" "$B5/site"
+printf '# 章\n\nあいうえお\n\n*2026 年 9 月 4 日時点の実測値である。*\n' > "$B5/manuscript/01-x.md"
+cat > "$B5/count.sh" <<'COUNTSH5'
+#!/usr/bin/env bash
+echo "合計 1234"
+COUNTSH5
+chmod +x "$B5/count.sh"
+printf '%s\n' '**全 7 章・1,234 字。** <!-- metric:manuscript-chars -->' > "$B5/FACE_A"
+cp "$SRC/bin/zennbuild" "$B5/zennbuild.tmp" 2>/dev/null || true
+mkdir -p "$B5/bin"; [ -f "$B5/zennbuild.tmp" ] && mv "$B5/zennbuild.tmp" "$B5/bin/zennbuild"
+
+runb5() { (cd "$B5" && BOOKCHECK_FACES="FACE_A" "$SRC/bin/bookcheck" "$B5/manuscript" 2>&1); }
+mkcfg5() { printf 'title: "x"\npublished: %s\nprice: 0\n' "$1" > "$B5/books/loop-ephemeral-agent/config.yaml"; }
+
+# 公開済み × どちらの面も現在形の否定を持たない → 通る
+mkcfg5 true
+printf '本は Zenn で公開している。\n' > "$B5/README.md"
+printf '<p>公開中です。</p>\n' > "$B5/site/index.html"
+out=$(runb5); rc=$?
+[ "$rc" -eq 0 ]; check $? "  公開済みで、どちらの面も食い違っていなければ通す"
+grep -q '食い違っていない' <<<"$out"; check $? "  何を見て通したかを言う"
+
+# **実際に起きた欠陥の回帰**: README の冒頭に古い否定が残っている
+printf '売上は 0 円。出品はまだされていない。\n\n本は Zenn で公開している。\n' > "$B5/README.md"
+out=$(runb5); rc=$?
+[ "$rc" -eq 1 ]; check $? "  README が現在形で「まだ出ていない」と言ったら赤くする"
+grep -q 'README.md' <<<"$out"; check $? "  どの面が言っているかを名指しする"
+grep -q '出品はまだされていない' <<<"$out"; check $? "  該当の行をそのまま見せる"
+grep -q '食い違っていない' <<<"$out" && check 1 "  落ちた回に「食い違っていない」と言わない" || check 0 "  落ちた回に「食い違っていない」と言わない"
+
+# **日付のある行は履歴なので見逃す**（除外が効いているか）
+printf '2026-09-10 時点では、出品はまだされていなかった。\n\nいまは公開している。\n' > "$B5/README.md"
+out=$(runb5); rc=$?
+[ "$rc" -eq 0 ]; check $? "  日付のある行（履歴の記述）は赤くしない"
+
+# **除外が広すぎないこと**: 日付を持つ行が別にあっても、現在形の行は拾う
+printf '2026-09-10 に書いた。\n\n出品はまだされていない。\n' > "$B5/README.md"
+out=$(runb5); rc=$?
+[ "$rc" -eq 1 ]; check $? "  同じ文書に日付の行があっても、現在形の行は拾う"
+
+# LP 側でも同じように拾う（面が 1 つしか見られていない検査にしない）
+printf '本は Zenn で公開している。\n' > "$B5/README.md"
+printf '<p>まだ公開していない。</p>\n' > "$B5/site/index.html"
+out=$(runb5); rc=$?
+[ "$rc" -eq 1 ]; check $? "  site/index.html 側の食い違いも拾う"
+grep -q 'site/index.html' <<<"$out"; check $? "  LP を名指しする"
+
+# **未公開なら検査しない。そして「検査していない」と言う**（未検査を合格として出さない）
+mkcfg5 false
+printf '出品はまだされていない。\n' > "$B5/README.md"
+printf '<p>まだ公開していない。</p>\n' > "$B5/site/index.html"
+out=$(runb5); rc=$?
+[ "$rc" -eq 0 ]; check $? "  published: true でなければ、この検査では赤くしない"
+grep -q '食い違いは検査していない' <<<"$out"; check $? "  検査していないことを黙らずに言う"
+grep -q '食い違っていない' <<<"$out" && check 1 "  未検査を「食い違っていない」と言わない" || check 0 "  未検査を「食い違っていない」と言わない"
+
+# **実物が緑であること**（道具の検出力と、いまの実物の状態は別の主張である）
+(cd "$SRC" && ./bin/bookcheck >/dev/null 2>&1); check $? "  実物のリポジトリで bookcheck が通る"
+
+
 # ── V. 公開ページの数値が、リポジトリの実物と一致するか（2026-09-14 追加） ────────
 #
 # 2026-09-14 実測: `site/index.html` の刻印は 2 日前で `bin/pagestamp` は `[ok]` を出したが、
