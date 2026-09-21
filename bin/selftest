@@ -2411,18 +2411,21 @@ SR="$SRC/venture/market/zenn/search_rank.sh"
 # **探す slug は1ページ目の 5 番目に置く**——見つけた時点で止まる実装なら total は 48 になり、
 # 最後まで走る実装なら 106 になる。**2つの実装が別の答えを返す入力である**（対照になっている）。
 mkdir -p "$T/srpages"
-mkpage() { # $1=ページ番号 $2=件数 $3=ヒット位置(0なら無し)
+# **next_page を入れる**（2026-09-21 更新）。search_rank.sh は終わりの判定を
+# 「48 件未満」という目安から `next_page` へ移した。**固定データが本物と同じ形を持っていなければ、
+# 検査は本物が踏まない経路を測ることになる**（OPERATING §3）。移したその場で 8 件落ちて分かった。
+mkpage() { # $1=ページ番号 $2=件数 $3=ヒット位置(0なら無し) $4=next_page(空なら null)
   python3 -c '
 import json,sys
-n=int(sys.argv[2]); hit=int(sys.argv[3]); page=sys.argv[1]
+n=int(sys.argv[2]); hit=int(sys.argv[3]); page=sys.argv[1]; nxt=sys.argv[4]
 items=[{"slug":"filler-%s-%d"%(page,i)} for i in range(1,n+1)]
 if hit: items[hit-1]={"slug":"target-book"}
-print(json.dumps({"books":items}))
-' "$1" "$2" "$3" > "$T/srpages/page-$1.json"
+print(json.dumps({"books":items, "next_page": int(nxt) if nxt else None}))
+' "$1" "$2" "$3" "$4" > "$T/srpages/page-$1.json"
 }
-mkpage 1 48 5
-mkpage 2 48 0
-mkpage 3 10 0
+mkpage 1 48 5 2
+mkpage 2 48 0 3
+mkpage 3 10 0 ""
 
 out=$(ZENN_SEARCH_PAGES_DIR="$T/srpages" "$SR" books target-book "dummy" 20)
 rank=$(printf '%s' "$out" | cut -f4); total=$(printf '%s' "$out" | cut -f5)
@@ -2448,14 +2451,74 @@ trunc3=$(printf '%s' "$out3" | cut -f7); total3=$(printf '%s' "$out3" | cut -f5)
 
 # **変異テスト。** 旧実装（見つけた時点で break）へ戻したら、必ず落ちること。
 # 見つけられない検査を置くと、緑であること自体が嘘になる。
+#
+# **2026-09-21 更新。** search_rank.sh を python の1本の走査へ書き直したので、
+# 変異の当て先も変わった。**古い sed をそのまま残したら、この直下の番人が [NG] を出して教えてくれた**
+# ——同じ日の午前に「変異が入っていないのを検出力が無いと読むところだった」を踏んでいる。
+# **番人はその型のために置いてあり、実際に働いた。**
 cp "$SR" "$T/sr_mut"
-sed -i 's/^  \[ "${hit:-0}" -gt 0 \] && \[ -z "$found" \] && found="$hit"$/  [ "${hit:-0}" -gt 0 ] \&\& { found="$hit"; break; }/' "$T/sr_mut"
-grep -q 'found="$hit"; break' "$T/sr_mut"; check $? "  変異を実際に入れられた（変異テストが空振りしていない）"
+sed -i 's/^    nxt = d.get("next_page")$/    if slug in seen_set: break\n    nxt = d.get("next_page")/' "$T/sr_mut"
+grep -q 'if slug in seen_set: break' "$T/sr_mut"; check $? "  変異を実際に入れられた（変異テストが空振りしていない）"
 chmod +x "$T/sr_mut"
 mout=$(ZENN_SEARCH_PAGES_DIR="$T/srpages" "$T/sr_mut" books target-book "dummy" 20)
 mtotal=$(printf '%s' "$mout" | cut -f5)
-[ "$mtotal" != "106" ]; check $? "  旧実装（見つけて break）に戻すと total が真の総数と食い違う"
+[ "$mtotal" != "106" ]; check $? "  旧実装（見つけて break）に戻すと rows が真の総数と食い違う"
 [ "$mtotal" = "48" ];   check $? "  その値は打ち切り位置（48）である＝これが外へ出ていた数字"
+
+
+# ── U6. 行数と件数を分けているか（2026-09-21 追加。同日2本目の分母の欠陥）─────
+#
+# **改訂その1 で「真の総数」と呼んだ数も、真の総数ではなかった。**
+# ページを繰って集めた行には重複がある。同日 13:0x UTC の実測:
+#   q=エージェント 行 249 / 相異なる 244 / 重複 5   （Claude Code 234/232/2、AI 520/513/7）
+# **重複はページの境目で起きる**（1ページ目の末尾と2ページ目の先頭に同じ slug）。
+# **5 回繰り返しても同じ 244 件だったので、この重複は乱数ではなく決定的である。**
+#
+# **分母として書いてよいのは distinct のほうである。** そして dups が 0 でないときは、
+# 重複した数だけどこかの行が落ちているかもしれない——**「不在」の主張がそのぶん弱くなる。**
+echo
+echo "U6. 行数（rows）と件数（distinct）を分けているか（2026-09-21 追加）"
+
+# **同じ slug を2ページにまたいで置く**（実際に観測された形そのもの）。
+mkdir -p "$T/srdup"
+python3 -c '
+import json,sys
+# page-1: 48 件。末尾に dup-book、5 番目に target-book
+items=[{"slug":"f1-%d"%i} for i in range(1,49)]
+items[4]={"slug":"target-book"}; items[47]={"slug":"dup-book"}
+json.dump({"books":items, "next_page": 2}, open(sys.argv[1],"w"))
+# page-2: 10 件。**先頭が page-1 の末尾と同じ dup-book**
+items2=[{"slug":"dup-book"}]+[{"slug":"f2-%d"%i} for i in range(1,10)]
+json.dump({"books":items2, "next_page": None}, open(sys.argv[2],"w"))
+' "$T/srdup/page-1.json" "$T/srdup/page-2.json"
+
+dout=$(ZENN_SEARCH_PAGES_DIR="$T/srdup" "$SR" books target-book "dummy" 20)
+drows=$(printf '%s' "$dout" | cut -f5)
+ddist=$(printf '%s' "$dout" | cut -f8)
+ddup=$(printf '%s' "$dout" | cut -f9)
+drank=$(printf '%s' "$dout" | cut -f4)
+[ "$drows" = "58" ]; check $? "  rows は返ってきた行数をそのまま言う（48+10=58）"
+[ "$ddist" = "57" ]; check $? "  **distinct は相異なる件数を言う（57）。行数と別の列である**"
+[ "$ddup"  = "1" ];  check $? "  dups は重複した数を言う（1）= 落ちた行があるかもしれない警告"
+[ "$drank" = "5" ];  check $? "  rank は相異なる順位で数える（重複で水増ししない）"
+
+# **重複が無い入力では dups=0 で、rows と distinct が一致する**（警告が常時点灯しないこと）
+nout=$(ZENN_SEARCH_PAGES_DIR="$T/srpages" "$SR" books target-book "dummy" 20)
+[ "$(printf '%s' "$nout" | cut -f9)" = "0" ]; check $? "  重複の無い入力では dups=0（定数の警告にしない）"
+[ "$(printf '%s' "$nout" | cut -f8)" = "106" ]; check $? "  そのとき distinct は rows と一致する（106）"
+
+# **重複する slug が探している当人だったら、順位は最初の出現で数える**
+d2=$(ZENN_SEARCH_PAGES_DIR="$T/srdup" "$SR" books dup-book "dummy" 20)
+[ "$(printf '%s' "$d2" | cut -f4)" = "48" ]; check $? "  重複した slug 自身の順位は最初の出現（48）で数える"
+
+# **変異テスト。** distinct を rows と同じに潰したら落ちること。
+cp "$SR" "$T/sr_mut2"
+sed -i 's/^distinct = len(seen)$/distinct = rows/' "$T/sr_mut2"
+grep -q '^distinct = rows$' "$T/sr_mut2"; check $? "  変異を実際に入れられた（変異テストが空振りしていない）"
+chmod +x "$T/sr_mut2"
+m2=$(ZENN_SEARCH_PAGES_DIR="$T/srdup" "$T/sr_mut2" books target-book "dummy" 20)
+[ "$(printf '%s' "$m2" | cut -f8)" != "57" ]; check $? "  distinct を rows に潰すと、相異なる件数が嘘になる"
+[ "$(printf '%s' "$m2" | cut -f9)" = "0" ];   check $? "  そのとき dups は 0 に化ける＝警告が消える（これが危ない側）"
 
 
 echo "── 結果: 成功 $pass / 失敗 $fail"
