@@ -1,0 +1,12 @@
+query	source	slug	rank	rows	found	truncated	distinct	dups
+Claude Code	books	loop-ephemeral-agent	89	234	yes	no	232	2
+エージェント	books	loop-ephemeral-agent	NA	249	no	no	244	5
+エージェ	books	loop-ephemeral-agent	NA	252	no	no	250	2
+エージェント 記憶	books	loop-ephemeral-agent	NA	249	no	no	244	5
+記憶	books	loop-ephemeral-agent	NA	0	no	no	0	0
+自律	books	loop-ephemeral-agent	NA	0	no	no	0	0
+自律エージェント	books	loop-ephemeral-agent	4	7	yes	no	7	0
+認証	books	loop-ephemeral-agent	NA	7	no	no	7	0
+Claude	books	loop-ephemeral-agent	106	301	yes	no	296	5
+AI エージェント	books	loop-ephemeral-agent	162	610	yes	no	596	14
+AI	books	loop-ephemeral-agent	128	520	yes	no	513	7
