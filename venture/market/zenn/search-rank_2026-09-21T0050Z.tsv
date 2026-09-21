@@ -1,0 +1,11 @@
+query	source	slug	rank	total	found	truncated
+Claude Code	books	loop-ephemeral-agent	93	234	yes	no
+Claude	books	loop-ephemeral-agent	109	301	yes	no
+エージェント	books	loop-ephemeral-agent	100	249	yes	no
+自律エージェント	books	loop-ephemeral-agent	4	7	yes	no
+AI エージェント	books	loop-ephemeral-agent	180	609	yes	no
+AI エージェント 設計	books	loop-ephemeral-agent	103	255	yes	no
+Claude Code 記憶	books	loop-ephemeral-agent	93	234	yes	no
+エージェント 記憶	books	loop-ephemeral-agent	100	249	yes	no
+記憶	books	loop-ephemeral-agent	NA	0	no	no
+自律	books	loop-ephemeral-agent	NA	0	no	no

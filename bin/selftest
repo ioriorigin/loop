@@ -2322,6 +2322,72 @@ grep -q ':ng$' <<<"$out"; check $? "  どの語が未定義かを名指しする
 awk '/^echo "12\./{f=1} f&&/bad "/{print;exit}' "$pf" | grep -q 'bad "'
 check $? "  項目12 の失敗側の枝が bad（= fail=1 を立てる）を呼んでいる"
 
+
+# ── U4. search_rank.sh の total が「真の総数」であるか（2026-09-21 追加） ────────
+# **この検査が生まれた欠陥。** 旧 search_rank.sh は slug を見つけた時点で走査を打ち切り、
+# **その打ち切り位置**を `total_scanned` として出していた。見つからなかった回は真の総数だが、
+# **見つかった回は「見つかるまでに数えた件数」でしかない。同じ列に2つの意味が入っていた。**
+# そして「94 位 / 96 件」という表記で **PR コメント（REPORT.md）として外へ出ていた**——
+# 真の総数は 234 件である。`OPERATING.md` §3（名前が同じ ref は、同じ ref ではない）が列の名前で出た形。
+#
+# **ネットワークは一切叩かない。** ZENN_SEARCH_PAGES_DIR に固定のページを置いて測る
+# （S 節の「selftest は本物の origin に触れない」と同じ設計。オフラインで検出力を持たせる）。
+echo "U4. search_rank.sh の total（2026-09-21 追加）"
+
+SR="$SRC/venture/market/zenn/search_rank.sh"
+[ -x "$SR" ]; check $? "  search_rank.sh が実行可能である"
+
+# 3ページぶんの固定データ。48 / 48 / 10 件で、合計 106 件。
+# **探す slug は1ページ目の 5 番目に置く**——見つけた時点で止まる実装なら total は 48 になり、
+# 最後まで走る実装なら 106 になる。**2つの実装が別の答えを返す入力である**（対照になっている）。
+mkdir -p "$T/srpages"
+mkpage() { # $1=ページ番号 $2=件数 $3=ヒット位置(0なら無し)
+  python3 -c '
+import json,sys
+n=int(sys.argv[2]); hit=int(sys.argv[3]); page=sys.argv[1]
+items=[{"slug":"filler-%s-%d"%(page,i)} for i in range(1,n+1)]
+if hit: items[hit-1]={"slug":"target-book"}
+print(json.dumps({"books":items}))
+' "$1" "$2" "$3" > "$T/srpages/page-$1.json"
+}
+mkpage 1 48 5
+mkpage 2 48 0
+mkpage 3 10 0
+
+out=$(ZENN_SEARCH_PAGES_DIR="$T/srpages" "$SR" books target-book "dummy" 20)
+rank=$(printf '%s' "$out" | cut -f4); total=$(printf '%s' "$out" | cut -f5)
+found=$(printf '%s' "$out" | cut -f6); trunc=$(printf '%s' "$out" | cut -f7)
+[ "$rank" = "5" ];    check $? "  順位を正しく返す（1ページ目の5番目 → 5）"
+[ "$total" = "106" ]; check $? "  **見つけた後も最後まで走査し、真の総数 106 を返す**（旧実装は 48）"
+[ "$found" = "yes" ]; check $? "  found=yes を返す"
+[ "$trunc" = "no" ];  check $? "  末尾へ届いたので truncated=no"
+
+# 見つからない場合も同じ総数を返すこと。**見つかった回と見つからなかった回で分母が変わってはいけない。**
+# 旧実装がまさにそうなっていて、前後比較（98 位 / 144 件 → 249 件中に不在）が
+# **並べられない2つの量の比較**になっていた。
+out2=$(ZENN_SEARCH_PAGES_DIR="$T/srpages" "$SR" books no-such-book "dummy" 20)
+total2=$(printf '%s' "$out2" | cut -f5); found2=$(printf '%s' "$out2" | cut -f6)
+[ "$found2" = "no" ];  check $? "  居ない slug には found=no を返す"
+[ "$total2" = "106" ]; check $? "  **居る場合と居ない場合で total が一致する**（分母が比較可能である）"
+
+# 上限ページで打ち切ったら、それを総数と偽らないこと。**未知を既知に潰さない。**
+out3=$(ZENN_SEARCH_PAGES_DIR="$T/srpages" "$SR" books no-such-book "dummy" 1)
+trunc3=$(printf '%s' "$out3" | cut -f7); total3=$(printf '%s' "$out3" | cut -f5)
+[ "$trunc3" = "yes" ]; check $? "  上限ページに達したら truncated=yes と言う"
+[ "$total3" = "48" ];  check $? "  そのとき total は走査できた分だけ（48）"
+
+# **変異テスト。** 旧実装（見つけた時点で break）へ戻したら、必ず落ちること。
+# 見つけられない検査を置くと、緑であること自体が嘘になる。
+cp "$SR" "$T/sr_mut"
+sed -i 's/^  \[ "${hit:-0}" -gt 0 \] && \[ -z "$found" \] && found="$hit"$/  [ "${hit:-0}" -gt 0 ] \&\& { found="$hit"; break; }/' "$T/sr_mut"
+grep -q 'found="$hit"; break' "$T/sr_mut"; check $? "  変異を実際に入れられた（変異テストが空振りしていない）"
+chmod +x "$T/sr_mut"
+mout=$(ZENN_SEARCH_PAGES_DIR="$T/srpages" "$T/sr_mut" books target-book "dummy" 20)
+mtotal=$(printf '%s' "$mout" | cut -f5)
+[ "$mtotal" != "106" ]; check $? "  旧実装（見つけて break）に戻すと total が真の総数と食い違う"
+[ "$mtotal" = "48" ];   check $? "  その値は打ち切り位置（48）である＝これが外へ出ていた数字"
+
+
 echo "── 結果: 成功 $pass / 失敗 $fail"
 
 
