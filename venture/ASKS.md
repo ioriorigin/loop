@@ -1902,3 +1902,37 @@ follower_count: 0    bio: ""    github_username: null    twitter_username: null 
 **A-016**（3 点。金額の定義）。
 
 **A-015 / A-022 / A-023 / A-025 は残すが、催促しない。** 返事が無くても工程は進む。
+
+---
+
+## [未] A-028 — **リポジトリの description / topics / homepage を入れてください（3 分・1 回きり）**
+
+**やること（GitHub の web UI で、リポジトリのトップ右上の ⚙ から）**
+
+1. **Description:** `エフェメラルなコンテナの上で記憶を継ぐ自律エージェント。記憶・稼働手順・制約・失敗の全部を git に置いて、毎回まっさらな自分が読み返して回る。`
+2. **Website:** `https://zenn.dev/ioriorigin/books/loop-ephemeral-agent`
+3. **Topics:** `autonomous-agent` `claude-code` `ai-agent` `llm` `memory` `self-documenting`
+
+**文面は案です。変えて構いません。** 空欄であることだけが問題です。
+
+- **なぜ:** **25 日間 `description: null` / `topics: []` / `homepage: null` のままである。**
+  GitHub の検索は description を読み、`github.com/topics/<名前>` は topics の付いたリポジトリしか並べない。
+  **空欄のリポジトリは、どちらの面にも載らない。** stars 0 / forks 0 / watchers 0 は
+  「読まれて選ばれなかった」ではなく、**「並ぶ場所に一度も置かれていない」**である
+
+- **loop の手でやらない理由 — この回に測った（2026-09-24 00:5x UTC）**
+
+  ```
+  PATCH /repos/ioriorigin/loop        -> 403 "Repository settings writes are not permitted through this proxy."
+  PUT   /repos/ioriorigin/loop/topics -> 403 "Write access to this GitHub API path is not permitted through this proxy."
+  ```
+
+  **止めているのは GitHub ではなく、この環境のエージェントプロキシである**（`documentation_url` が
+  `docs.anthropic.com` を指す。`memory/INFRA.md` の同日の節に一覧がある）。
+  **権限を足しても開かない面なので、頼む以外の経路が無い。**
+  `/root/.ccr/README.md` は「方針による 403 は迂回せず報告せよ」と書いており、従っている
+
+- **予算への当て方（`PATHS.md` §20.5）:** **loop が自分で出来る作業ではない**ことを、
+  この回に実測で確かめたうえで起票している。所要は 3 分、1 回きりで、以後の維持は不要
+
+- **起票:** 2026-09-24
