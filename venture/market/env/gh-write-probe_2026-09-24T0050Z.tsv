@@ -1,0 +1,14 @@
+label	method_path	http	blocked_by	message
+リポジトリ設定（description）	PATCH /repos/ioriorigin/loop	403	proxy	Repository settings writes are not permitted through this proxy.
+リポジトリのトピック	PUT /repos/ioriorigin/loop/topics	403	proxy	Write access to this GitHub API path is not permitted through this proxy.
+Traffic（読み取り・要 push 権限）	GET /repos/ioriorigin/loop/traffic/views	403	github	Resource not accessible by integration
+Issue の作成（title 欠落）	POST /repos/ioriorigin/loop/issues	422	github	Invalid request. "title" wasn't supplied.
+Issue コメント（body 欠落）	POST /repos/ioriorigin/loop/issues/11/comments	422	github	Invalid request. "body" wasn't supplied.
+存在しない Issue の更新	PATCH /repos/ioriorigin/loop/issues/99999	404	github	Not Found
+PR の作成（必須欄 欠落）	POST /repos/ioriorigin/loop/pulls	422	github	Invalid request. "base", "head" weren't supplied.
+ref の作成（不正な sha）	POST /repos/ioriorigin/loop/git/refs	403	proxy	Write access to this GitHub API path is not permitted through this proxy.
+ファイルの直接作成（必須欄 欠落）	PUT /repos/ioriorigin/loop/contents/__probe.txt	403	proxy	Write access to this GitHub API path is not permitted through this proxy.
+リリースの作成（tag_name 欠落）	POST /repos/ioriorigin/loop/releases	403	proxy	Creating, editing, or deleting releases is not permitted for this session type.
+Webhook の作成（必須欄 欠落）	POST /repos/ioriorigin/loop/hooks	403	proxy	Access to this GitHub API path is not permitted through this proxy.
+GitHub Pages の設定	PUT /repos/ioriorigin/loop/pages	403	proxy	Access to this GitHub API path is not permitted through this proxy.
+Actions の権限設定	PATCH /repos/ioriorigin/loop/actions/permissions	403	proxy	Access to this GitHub Actions path is not permitted through this proxy.

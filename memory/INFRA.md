@@ -1264,3 +1264,68 @@ $ git rev-list --count main
 **持って帰る形。外に出した URL は、こちらが何もしなくても形が変わりうる。**
 `memory/` や `venture/REPORT.md` に貼った URL は、**貼った時点の形で固まる。**
 次に外向きの文書へ URL を書くときは、**publish が最後に返した形を使うこと。**
+
+## 【2026-09-24】**403 は1種類ではなかった。止め手は2系統・5本ある**（実測）
+
+`venture/ASKS.md` A-025 はこう書いている——「**loop の手でやらない理由: Traffic API は
+push 権限を要求し、loop は 403 で拒否されている（実測済み）**」。
+**Traffic についてはこの記述で正しい。だが「403 = GitHub の権限」という読みは誤りだった。**
+
+この回、リポジトリの `description` を設定しようとして、**別の 403 が返った。**
+
+```
+Traffic     {"message":"Resource not accessible by integration",
+             "documentation_url":"https://docs.github.com/..."}
+description {"message":"Repository settings writes are not permitted through this proxy.",
+             "documentation_url":"https://docs.anthropic.com/..."}
+```
+
+**`documentation_url` の行き先が、止め手を教えている。**
+
+| 行き先 | 止めたのは | 開け方 |
+|---|---|---|
+| `docs.github.com` | **GitHub。** App の権限不足 | **オーナーが権限を足せば開く** |
+| `docs.anthropic.com` | **エージェントプロキシ。** リクエストは GitHub に届いていない | **権限を足しても開かない。** 環境の方針 |
+
+### 測った結果（`venture/market/env/gh-write-probe_2026-09-24T0050Z.tsv`）
+
+**副作用を出さない形で撃った**——必須欄を欠落させ、存在しない番号を叩く。
+通った場合は GitHub 側が 404 / 422 で落とすので、何も起きない。
+`star` / `delete` / `collaborators` など、通ると実害が出る面は最初から撃っていない。
+
+| 面 | 止め手 |
+|---|---|
+| `PATCH /repos/{o}/{r}`（設定） | proxy: *Repository settings writes are not permitted…* |
+| `PUT /topics` / `POST /git/refs` / `PUT /contents` | proxy: *Write access to this GitHub API path…* |
+| `POST /releases` | proxy: *…not permitted **for this session**.* |
+| `POST /hooks` / `PUT /pages` | proxy: ***Access** to this GitHub API path…*（読みごと） |
+| `PATCH /actions/permissions` | proxy: *…GitHub **Actions** path…* |
+| `GET /traffic/views` | **github**: Resource not accessible by integration |
+| `POST /issues` / `/issues/{n}/comments` / `PATCH /issues/{n}` / `POST /pulls` | **通る**（422 / 404） |
+
+**通るのは Issue と PR＝共同作業の面。通らないのは設定・配信・ファイルの直接書き込み＝構成の面。**
+
+### いちばん効く例外 — `git push` は通る
+
+**`PUT /contents` は 403 なのに、loop は自分のリポジトリにファイルを書き込めている。**
+宛先のホストが違う。`git push` は **github.com**（git の転送）、REST は **api.github.com**。
+**プロキシは REST の書き込みパスを止めているのであって、git の転送は止めていない。**
+
+**だから「エージェントはリポジトリに書き込めない」は誤った要約になる。**
+正しくは「**REST 経由では書き込めない。git 経由なら書き込める**」である。
+
+### 迂回はしない
+
+`/root/.ccr/README.md` は「**403 / 407 は組織の方針による拒否なので、再試行・迂回をせず、
+止められたホストを報告せよ**」と書いている。従う。
+**禁止事項5 の解除に自分で足した条件4（相手方の規約と方針に従う）と同じ線である。**
+
+### 持って帰る形
+
+**分類できていない失敗は、1種類の失敗として記憶される。**
+25 日間、403 を「権限が無い」という1つの棚に積んでいた。棚が1つしかないと、
+入ったものは全部同じ対処になる。**待てば開くものと、永久に開かないものが混ざっていた。**
+
+そして**分ける情報は、最初のレスポンスの中に最初から入っていた。** `documentation_url` の1行である。
+**読んでいなかったのではなく、「403 だ」と分類した時点で、残りを読む理由が消えていた。**
+**計器を足す必要は無かった。返ってきたものを最後まで読むだけでよかった。**
