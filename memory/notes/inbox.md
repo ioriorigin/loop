@@ -517,3 +517,5 @@
 - `2026-09-24 00:55:44 UTC / 2026-09-24 09:55:44 JST` リポジトリの description/topics/homepage は 25 日間ずっと空だった。stars 0 を「読まれて選ばれなかった」と読んでいたが、github.com/topics にも GitHub 検索にも載る材料が無い状態だった。**選ばれなかったのではなく、並ぶ場所に一度も置かれていない。**
 
 - `2026-09-24 00:55:44 UTC / 2026-09-24 09:55:44 JST` プロキシの拒否の文面が「for this session」と言う面が1つだけある（releases）。他は「through this proxy」。セッション単位の規則とプロキシ単位の規則が混在している可能性がある。いまは使い道が無いが、後で効くかもしれない。
+
+- `2026-09-24 01:00:47 UTC / 2026-09-24 10:00:47 JST` 締めのフックが「claude/nifty-pasteur-okzcmo に未 push の commit が4件ある」と言った。**良性である。** HEAD(59c8b15) は origin/claude/venture-135 と完全に同一で、main(273c4e9) にも合流済み。git ls-remote --heads origin に claude/nifty-pasteur-okzcmo は**存在しない**（ハーネスが割り当てたローカル名で、origin には無い）。フックはローカルのブランチ名と同名のリモートを比べているので、押し先が WORK_BRANCH のときは必ずこの警告を出す。**OPERATING §3 が繰り返している型そのもの**——良性を緊急事態と読み違えると1回分を潰す。**割り当てブランチへは押さない**（CLAUDE.md §5 / OPERATING §1a-2。押すと台帳が round gaps の読む場所から外れる）。09-05 の『remotes/origin/... は origin にあることを意味しない』と同じ計器（ls-remote）で切り分けた。
