@@ -1,0 +1,41 @@
+# 導入検査: 利用者の手元（Windows / macOS / Linux）で、uv 1本 → bpy → FBX 往復が通るか。
+# venture/DEMAND.md §8.5-2。「通らなければ作らない」の判定に使う。
+name: blender-smoke
+
+on:
+  push:
+    paths:
+      - "venture/blender/**"
+      - ".github/workflows/blender-smoke.yml"
+  pull_request:
+    paths:
+      - "venture/blender/**"
+      - ".github/workflows/blender-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      # 利用者と同じく、Python を先に入れていない状態から uv に取ってこさせる
+      - name: smoke (uv → bpy → FBX 往復)
+        shell: bash
+        run: |
+          start=$(date +%s)
+          uv run --no-project --python 3.11 --with bpy==5.0.1 python venture/blender/smoke.py smoke-out
+          echo "合計 $(( $(date +%s) - start )) 秒（bpy の取得を含む）"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-${{ matrix.os }}
+          path: smoke-out/
