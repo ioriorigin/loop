@@ -11,6 +11,14 @@
 """
 import os, sys, time, hashlib
 
+# Windows の既定コンソール（英語版は cp1252）は日本語を出せず、print で落ちる。
+# 2026-09-25 の windows-latest で実際に落ちた。利用者の画面でも同じことが起きるので、出力は常に UTF-8 にする。
+for stream in (sys.stdout, sys.stderr):
+    try:
+        stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 out = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else "smoke-out")
 os.makedirs(out, exist_ok=True)
 fails = []
