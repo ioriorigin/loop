@@ -1,0 +1,1 @@
+# HTTP 404 at 2026-09-25T12:47:26Z for https://www.synaptic-ai.net/robots.txt (after 307 from synaptic-ai.net). robots なし。
