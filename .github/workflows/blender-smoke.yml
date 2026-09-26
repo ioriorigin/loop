@@ -34,6 +34,9 @@ jobs:
           start=$(date +%s)
           uv run --no-project --python 3.11 --with bpy==5.0.1 python venture/blender/smoke.py smoke-out
           echo "合計 $(( $(date +%s) - start )) 秒（bpy の取得を含む）"
+      - name: recipe 1 (衣装に隠れる素体の面を消す)
+        shell: bash
+        run: uv run --no-project --python 3.11 --with bpy==5.0.1 python venture/blender/recipes/test_hide_body.py smoke-out/recipe1
       - uses: actions/upload-artifact@v4
         if: always()
         with:
