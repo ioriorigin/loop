@@ -33,8 +33,11 @@ bl = face.shape_key_add(name="blink")
 for p in bl.data:
     if p.co.z > 0:
         p.co.z -= 0.03
+# 骨を1本置く。実物のアバターは必ず骨を持ち、書き出しの既定では末端の骨に _end が足される（2026-09-27 実測）
+bpy.ops.object.armature_add()
+bpy.context.active_object.data.bones[0].name = "Hips"
 src = os.path.join(out, "face.fbx")
-bpy.ops.export_scene.fbx(filepath=src, use_selection=False)
+bpy.ops.export_scene.fbx(filepath=src, use_selection=False, add_leaf_bones=False)
 src_hash = hashlib.sha256(open(src, "rb").read()).hexdigest()
 
 WIDTH = 0.1
@@ -60,6 +63,8 @@ bpy.ops.import_scene.fbx(filepath=dst)
 f = next(o for o in bpy.context.scene.objects if o.type == "MESH" and o.name == "Face")
 kb = f.data.shape_keys.key_blocks
 names = [k.name for k in kb]
+check("末端の骨に _end が増えていない",
+      not any(bn.name.endswith("_end") for o in bpy.context.scene.objects if o.type == "ARMATURE" for bn in o.data.bones))
 check("元のキーと他のキーが残っている", "smile" in names and "blink" in names, str(names))
 check("分けたキーが FBX に残っている", "smile_L" in names and "smile_R" in names, str(names))
 mw = f.matrix_world

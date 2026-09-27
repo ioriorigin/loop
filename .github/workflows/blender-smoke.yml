@@ -40,6 +40,9 @@ jobs:
       - name: recipe 3 (シェイプキーを左右に分ける)
         shell: bash
         run: uv run --no-project --python 3.11 --with bpy==5.0.1 python venture/blender/recipes/test_split_shapekey.py smoke-out/recipe3
+      - name: recipe 4 (骨をウェイトごと分ける)
+        shell: bash
+        run: uv run --no-project --python 3.11 --with bpy==5.0.1 python venture/blender/recipes/test_split_bone.py smoke-out/recipe4
       - uses: actions/upload-artifact@v4
         if: always()
         with:

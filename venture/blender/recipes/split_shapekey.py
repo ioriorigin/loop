@@ -96,7 +96,9 @@ def run(src, mesh_name, dst, keys, width=0.004):
     for k in keys:
         n = split_key(obj, k, width)
         (made.extend(n) if n else skipped.append(k))
-    bpy.ops.export_scene.fbx(filepath=dst, use_selection=False, object_types={"MESH", "ARMATURE", "EMPTY"})
+    bpy.ops.export_scene.fbx(filepath=dst, use_selection=False, object_types={"MESH", "ARMATURE", "EMPTY"},
+                             # 既定の True だと、書き出すたびに末端の骨へ 名前_end を1本足す（2026-09-27 実測: 2回で Spine_end_end）
+                             add_leaf_bones=False)
     print(f"「{mesh_name}」のキー {len(keys) - len(skipped)} 本を左右に分けた（境目の幅 {width}m）: {', '.join(made)}")
     if skipped:
         print(f"すでに _L / _R があるので飛ばした: {', '.join(skipped)}")
