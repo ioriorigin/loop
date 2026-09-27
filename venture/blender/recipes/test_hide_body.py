@@ -36,8 +36,11 @@ import bmesh
 bm = bmesh.new(); bm.from_mesh(shirt.data)
 bmesh.ops.delete(bm, geom=[f for f in bm.faces if abs(f.calc_center_median().z) > 0.5], context="FACES")
 bm.to_mesh(shirt.data); bm.free()
+# 骨を1本置く。実物のアバターは必ず骨を持ち、書き出しの既定では末端の骨に _end が足される（2026-09-27 実測）
+bpy.ops.object.armature_add()
+bpy.context.active_object.data.bones[0].name = "Hips"
 src = os.path.join(out, "dressed.fbx")
-bpy.ops.export_scene.fbx(filepath=src, use_selection=False)
+bpy.ops.export_scene.fbx(filepath=src, use_selection=False, add_leaf_bones=False)
 src_hash = hashlib.sha256(open(src, "rb").read()).hexdigest()
 
 dst = os.path.join(out, "dressed_hidden_removed.fbx")
@@ -56,6 +59,8 @@ bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.import_scene.fbx(filepath=dst)
 b = next(o for o in bpy.context.scene.objects if o.type == "MESH" and o.name == "Body")
 keys = [k.name for k in (b.data.shape_keys.key_blocks if b.data.shape_keys else [])]
+check("末端の骨に _end が増えていない",
+      not any(bn.name.endswith("_end") for o in bpy.context.scene.objects if o.type == "ARMATURE" for bn in o.data.bones))
 check("シェイプキー保持", "vrc.v_aa" in keys, str(keys))
 kb = b.data.shape_keys.key_blocks
 moved = max((kb["vrc.v_aa"].data[i].co - kb["Basis"].data[i].co).length for i in range(len(b.data.vertices)))

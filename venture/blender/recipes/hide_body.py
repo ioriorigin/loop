@@ -95,7 +95,9 @@ def run(src, body_name, dst, distance=0.03):
     before = len(body.data.polygons)
     idx = hidden_faces(body, clothes, distance)
     delete_faces(body, idx)
-    bpy.ops.export_scene.fbx(filepath=dst, use_selection=False, object_types={"MESH", "ARMATURE", "EMPTY"})
+    bpy.ops.export_scene.fbx(filepath=dst, use_selection=False, object_types={"MESH", "ARMATURE", "EMPTY"},
+                             # 既定の True だと、書き出すたびに末端の骨へ 名前_end を1本足す（2026-09-27 実測: 2回で Spine_end_end）
+                             add_leaf_bones=False)
     after = len(body.data.polygons)
     print(f"素体「{body_name}」の面 {before} → {after}（{before - after} 面を削除、距離 {distance}m）")
     return before, after
