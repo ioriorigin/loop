@@ -43,6 +43,16 @@ jobs:
       - name: recipe 4 (骨をウェイトごと分ける)
         shell: bash
         run: uv run --no-project --python 3.11 --with bpy==5.0.1 python venture/blender/recipes/test_split_bone.py smoke-out/recipe4
+      # README.md の手順どおり、README のあるフォルダで叩く。NG が0件なら 0、見つからない FBX なら D6 で 1
+      - name: doctor (動作確認と、FBX の中身の一覧)
+        shell: bash
+        working-directory: venture/blender
+        run: |
+          uv run --no-project --python 3.11 --with bpy==5.0.1 python doctor.py
+          uv run --no-project --python 3.11 --with bpy==5.0.1 python doctor.py ../../smoke-out/recipe4/hair.fbx | tee doctor.txt
+          grep -q "骨「Hair」" doctor.txt
+          if uv run --no-project --python 3.11 --with bpy==5.0.1 python doctor.py missing.fbx > miss.txt; then echo "見つからない FBX で 0 を返した"; exit 1; fi
+          grep -q "\[NG\] D6" miss.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
