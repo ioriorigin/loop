@@ -27,6 +27,14 @@ NAME = "loop-blender-recipes"
 GPL3_SHA256 = "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
 SPDX = "# SPDX-License-Identifier: GPL-3.0-or-later"
 
+# Windows の既定コンソール（英語版は cp1252）は日本語を出せず、print で落ちる（smoke.py と同じ）。
+# 2026-09-28 の windows-latest で、この pack.py が [NG] を出そうとして実際に落ちた。
+for stream in (sys.stdout, sys.stderr):
+    try:
+        stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 
 def payload():
     files = [HERE / "README.md", HERE / "COPYING", HERE / "doctor.py"]
@@ -36,7 +44,9 @@ def payload():
 
 def check(files):
     ng = []
-    digest = hashlib.sha256((HERE / "COPYING").read_bytes()).hexdigest()
+    # Windows の checkout（core.autocrlf）は改行を CRLF に変える。原文の照合は LF にそろえてから行う。
+    # 2026-09-28 の windows-latest で、原文どおりの COPYING が P1 で落ちた
+    digest = hashlib.sha256((HERE / "COPYING").read_bytes().replace(b"\r\n", b"\n")).hexdigest()
     if digest != GPL3_SHA256:
         ng.append(f"P1 COPYING が GPL-3.0 の原文と一致しない（{digest[:12]}…）")
     for p in files:
