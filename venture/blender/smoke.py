@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """導入検査: Blender 本体なしで、bpy だけで FBX を往復できるか。
 
 `uv run --python 3.11 --with bpy==5.0.1 python venture/blender/smoke.py <出力先ディレクトリ>`

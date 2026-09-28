@@ -109,3 +109,4 @@ uv run --no-project --python 3.11 --with bpy==5.0.1 python recipes/split_bone.py
 
 Blender の部品（bpy）を使うプログラムは、Blender の決まりにより **GPL** で配ります。
 受け取った人は、自由に使い、直し、配り直せます。
+条文の全文は同じフォルダの **`COPYING`**（GNU GPL 第3版）にあります。各ファイルの1行目にも `GPL-3.0-or-later` と書いてあります。

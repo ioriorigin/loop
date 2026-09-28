@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """レシピ3: シェイプキーを左右に分ける（片目だけ閉じる・片頬だけ上げる、を作る）。
 
 `uv run --no-project --python 3.11 --with bpy==5.0.1 python venture/blender/recipes/split_shapekey.py <入力.fbx> <メッシュの名前> <出力.fbx> <キー名,キー名,...> [境目の幅(m)=0.004]`

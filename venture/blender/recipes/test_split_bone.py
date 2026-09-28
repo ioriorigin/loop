@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """レシピ4（split_bone.py）の検査。smoke と同じ CI で3環境に掛ける。
 
 `uv run --no-project --python 3.11 --with bpy==5.0.1 python venture/blender/recipes/test_split_bone.py <出力先>`
