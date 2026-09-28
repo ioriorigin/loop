@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """レシピ4: 1本の骨を、ウェイトごと何本かに分ける（長い髪・スカート・しっぽを、なめらかに曲げる／揺らす）。
 
 `uv run --no-project --python 3.11 --with bpy==5.0.1 python venture/blender/recipes/split_bone.py <入力.fbx> <骨の名前> <出力.fbx> [本数=3]`

@@ -53,6 +53,14 @@ jobs:
           grep -q "骨「Hair」" doctor.txt
           if uv run --no-project --python 3.11 --with bpy==5.0.1 python doctor.py missing.fbx > miss.txt; then echo "見つからない FBX で 0 を返した"; exit 1; fi
           grep -q "\[NG\] D6" miss.txt
+      # 買った人が受け取る形そのもの（zip）を組み、展開した先から doctor を叩く
+      - name: pack (配る zip と、展開した先での動作確認)
+        shell: bash
+        run: |
+          uv run --no-project --python 3.11 python venture/blender/pack.py smoke-out/dist
+          cd smoke-out/dist && uv run --no-project --python 3.11 python -m zipfile -e loop-blender-recipes.zip .
+          cd loop-blender-recipes && test -f COPYING
+          uv run --no-project --python 3.11 --with bpy==5.0.1 python doctor.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:

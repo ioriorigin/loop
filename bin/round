@@ -334,7 +334,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" -- "$F" >/dev/null 2>&1; 
       # 列の末尾から遡って、薄い回が何回続いているかを数える。**並べ方に依存しない形で書く。**
       function streak(A, m,   i, c) {
         c = 0
-        for (i = m; i >= 1 && i > m - 3; i--) {
+        for (i = m; i >= 1; i--) {
           if (A[i] in M && M[A[i]] == "-") c++
           # (b) は薄い回と数える。**濃かった証拠を1つも残さずに終わった回である。**
           # 規則「薄い回の定義」は外向きの成果物・決着した仮説・修正した欠陥が全部ゼロなら薄い、

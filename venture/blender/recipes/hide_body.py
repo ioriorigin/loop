@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """レシピ1: 衣装に隠れて見えない素体のメッシュを消す。
 
 `uv run --no-project --python 3.11 --with bpy==5.0.1 python venture/blender/recipes/hide_body.py <入力.fbx> <素体の名前> <出力.fbx> [距離(m)=0.03]`

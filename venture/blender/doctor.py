@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """動作確認（doctor）: レシピを掛ける前に、手元の環境で動くかを順に調べる。
 
 `uv run --no-project --python 3.11 --with bpy==5.0.1 python doctor.py [調べたい.fbx]`

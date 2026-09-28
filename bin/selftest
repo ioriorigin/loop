@@ -405,6 +405,14 @@ for k in 1 2 3; do
 done
 out=$("$T/bin/round" gaps 12 2>&1)
 grep -q '薄い回が 3 回連続' <<<"$out"; check $? "  薄い回が3回続いたら停止条件を突きつける"
+# 3 を超えても実数を出す（2026-09-28 第12回診断）。streak() が i > m-3 で打ち切っていたので、
+# 09-26 から7連続になっても毎回「3 回連続」としか出さず、延長が画面から見えなかった
+for k in 4 5; do
+  "$T/bin/round" open "薄い回$k" >/dev/null 2>&1
+  "$T/bin/round" close - "全部ゼロ" >/dev/null 2>&1
+done
+out=$("$T/bin/round" gaps 12 2>&1)
+grep -q '薄い回が 5 回連続' <<<"$out"; check $? "  3 を超えた連続は実数で出す（3 で打ち切らない）"
 # 濃い回が1つ挟まれば連続は切れる。切れないと警告が鳴りっぱなしになり、誰も読まなくなる
 "$T/bin/round" open "濃い回" >/dev/null 2>&1
 "$T/bin/round" close + "README 修正" >/dev/null 2>&1
