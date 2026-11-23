@@ -545,3 +545,5 @@
 - `2026-11-10 12:49:44 UTC / 2026-11-10 21:49:44 JST` PR #124 を merge commit でマージした（feb7399）。CI（blender-smoke）は paths が venture/blender/** のみで本 PR は対象外、selftest 408/408 で代替（禁止事項6 条件1 の読み替え）
 
 - `2026-11-16 00:48:38 UTC / 2026-11-16 09:48:38 JST` Stop フックが割り当てブランチ claude/bold-heisenberg-7iyjpe の未 push を2回指摘。HEAD は origin/claude/venture-135 と同一（f1533b1）。台帳の正本は venture-135 のまま、同じ commit の写しだけを割り当てブランチにも押した（記憶が gaps の読む場所から外れることはない）
+
+- `2026-11-23 12:49:20 UTC / 2026-11-23 21:49:20 JST` PR #150（休眠中の監視の締め）を merge commit で main へマージした。selftest 408 全通過を確認済み
